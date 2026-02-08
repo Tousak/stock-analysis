@@ -1,0 +1,9 @@
+pandas
+numpy
+scikit-learn
+edgar-tools
+yfinance
+openai
+python-dotenv
+openpyxl
+tqdm
