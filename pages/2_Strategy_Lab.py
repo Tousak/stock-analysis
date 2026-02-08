@@ -5,7 +5,7 @@ import yfinance as yf
 import os
 
 # Import pipeline functions and config
-from src.config import FEATURES_PATH, PREDICTIONS_PATH, BACKTEST_RESULTS_PATH, INITIAL_CAPITAL, TOP_N_STOCKS_TO_INVEST
+from src.config import FEATURES_PATH, PREDICTIONS_PATH, BACKTEST_RESULTS_PATH, INITIAL_CAPITAL
 from src.model import run_walk_forward_predictions
 from src.backtester import simulate_portfolio
 
@@ -37,7 +37,7 @@ def calculate_max_drawdown(portfolio_values):
 # --- Sidebar for Inputs ---
 st.sidebar.header("Simulation Parameters")
 initial_capital_input = st.sidebar.number_input("Initial Capital ($)", min_value=100, value=int(INITIAL_CAPITAL), step=100)
-top_n_input = st.sidebar.slider("Top N Stocks to Invest In", min_value=1, max_value=10, value=TOP_N_STOCKS_TO_INVEST)
+
 start_year_input = st.sidebar.number_input("Backtest Start Year", min_value=2020, max_value=2025, value=2021, step=1)
 
 # --- Main Page ---
@@ -56,7 +56,7 @@ if st.sidebar.button("Run New Simulation", use_container_width=True):
             
             # Run backtest with UI parameters
             predictions_df = pd.read_excel(PREDICTIONS_PATH)
-            simulate_portfolio(predictions_df, initial_capital=initial_capital_input, start_year=start_year_input, top_n=top_n_input)
+            simulate_portfolio(predictions_df, initial_capital=initial_capital_input, start_year=start_year_input)
         
         st.success("Simulation complete!")
 

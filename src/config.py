@@ -3,7 +3,12 @@ import openai
 from dotenv import load_dotenv
 
 # --- General Settings ---
-TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"] # User-specified list
+TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", 
+           "LLY", "AVGO", "WMT", "JPM", "V", "XOM", "JNJ", "MA", "COST", "MU", 
+           "ORCL", "BAC", "ABBV", "HD", "PG", "CVX", "NFLX", "KO", "CAT", "AMD", 
+           "GE", "CSCO", "PLTR", "MRK", "WFC", "LRCX", "MS", "PM", "IBM", "GS",
+            "RTX", "AMAT", "INTC", "UNH", "AXP", "PEP", "MCD", "TMUS", "C", 
+            "GEV", "LIN", "AMGN"] # User-specified list
 NUM_QUARTERS_TO_FETCH = 24 # Approx 6 years to ensure we get data from start of 2020
 
 # --- API Keys and Client Initialization ---
@@ -42,4 +47,4 @@ MODEL_RANDOM_STATE = 42
 
 # --- Backtester Settings ---
 INITIAL_CAPITAL = 100.0 # Starting capital for portfolio simulation
-TOP_N_STOCKS_TO_INVEST = 3 # Number of top stocks to invest in each quarter
+

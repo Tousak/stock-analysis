@@ -3,9 +3,9 @@ import os
 from tqdm.auto import tqdm
 from datetime import timedelta
 
-from src.config import INITIAL_CAPITAL, TOP_N_STOCKS_TO_INVEST, BACKTEST_RESULTS_PATH, PREDICTIONS_PATH, DATA_DIR
+from src.config import INITIAL_CAPITAL, BACKTEST_RESULTS_PATH, PREDICTIONS_PATH, DATA_DIR
 
-def simulate_portfolio(predictions_df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL, start_year: int = 2021, top_n: int = TOP_N_STOCKS_TO_INVEST) -> pd.DataFrame:
+def simulate_portfolio(predictions_df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL, start_year: int = 2021) -> pd.DataFrame:
     """
     Simulates a portfolio strategy with detailed logging for debugging.
     """
@@ -37,21 +37,30 @@ def simulate_portfolio(predictions_df: pd.DataFrame, initial_capital: float = IN
         'selection': 'Initial Capital'
     }]
     print(f"--- Backtest Initializing ---")
-    print(f"Start Date: {start_date} | Initial Portfolio Value: ${initial_capital:,.2f} | Top N: {top_n}\n")
+    print(f"Start Date: {start_date} | Initial Portfolio Value: ${initial_capital:,.2f}\n")
     
     for current_q in tqdm(trading_quarters, desc="Backtesting Quarters"):
         quarter_predictions = df[df['quarter'] == current_q]
         if quarter_predictions.empty:
             continue
 
-        top_picks = quarter_predictions[quarter_predictions['predicted_return'] > 0.0].nlargest(top_n, 'predicted_return')
+        positive_predictions = quarter_predictions[quarter_predictions['predicted_return'] > 0.0]
 
-        if top_picks.empty:
+        if positive_predictions.empty:
             period_return = 0.0
-            selection = "CASH (Bearish)"
+            selection = "CASH (No positive predictions)"
         else:
-            period_return = top_picks['next_quarter_return'].mean()
-            selection = ", ".join(top_picks['ticker'].tolist())
+            total_predicted_return_sum = positive_predictions['predicted_return'].sum()
+            if total_predicted_return_sum == 0: # Avoid division by zero if all positive predictions are zero
+                period_return = 0.0
+                selection = "CASH (Zero sum positive predictions)"
+            else:
+                # Calculate weights for proportional investment
+                weights = positive_predictions['predicted_return'] / total_predicted_return_sum
+                
+                # Calculate the weighted average of actual next quarter returns
+                period_return = (positive_predictions['next_quarter_return'] * weights).sum()
+                selection = ", ".join(positive_predictions['ticker'].tolist())
         
         # --- Debug prints inside the loop ---
         value_before = portfolio_value
