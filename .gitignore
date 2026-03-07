@@ -11,4 +11,13 @@ wheels/
 
 # Environment variables file
 .env
+
+# Data and large files
+data/
 **/data/
+*.xlsx
+
+# AI models
+research/notebooks/local_finbert/
+
+**/tk.txt

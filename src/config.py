@@ -34,6 +34,7 @@ PROCESSED_FILINGS_PATH = os.path.join(DATA_DIR, "processed_filings.xlsx")
 FEATURES_PATH = os.path.join(DATA_DIR, "features.xlsx")
 PREDICTIONS_PATH = os.path.join(DATA_DIR, "predictions.xlsx")
 BACKTEST_RESULTS_PATH = os.path.join(DATA_DIR, "backtest_results.xlsx")
+LATEST_PREDICTIONS_PATH = os.path.join(DATA_DIR, "latest_predictions.xlsx")
 
 # --- Processor Settings ---
 # Regex pattern for MD&A extraction (Item 2 to Item 3)

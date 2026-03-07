@@ -59,41 +59,31 @@ def calculate_next_quarter_return(filings_df: pd.DataFrame, market_data_df: pd.D
     return filings_df
 
 def engineer_features(processed_filings_df: pd.DataFrame) -> pd.DataFrame:
-    """Orchestrates feature engineering, replicating the notebook's aggressive cleaning."""
+    """
+    Orchestrates feature engineering, with differentiated cleaning for training and prediction data.
+    Aggressively cleans historical data for model training.
+    Retains latest data points (where next_quarter_return is NaN) for prediction,
+    applying more lenient cleaning to ensure they are available for forecasting.
+    """
     df = processed_filings_df.copy()
     
-    # --- Notebook-style Aggressive Cleaning ---
-    print(f"Original number of companies: {df['ticker'].nunique()}")
-    # 1. Filter out companies with any missing revenue/income or empty mda_text
-    # Replace empty strings with NaN to be dropped
     df['mda_text'].replace('', np.nan, inplace=True)
-    
-    # Filter groups (tickers) that have no nulls in these critical columns
-    df_clean = df.groupby('ticker').filter(lambda x: x[['revenue', 'net_income', 'mda_text']].notna().all().all())
-    
-    print(f"Companies remaining after aggressive cleaning: {df_clean['ticker'].nunique()}")
-    print(f"Remaining companies: {df_clean['ticker'].unique().tolist()}")
-    
-    if df_clean.empty:
-        print("No companies remaining after aggressive data cleaning. Aborting.")
-        return pd.DataFrame()
-    
-    df = df_clean.copy()
-    # --- End Cleaning ---
-
     df.sort_values(by=['ticker', 'filing_date'], inplace=True)
+
+    # --- Initial Feature Calculation (before splitting for cleaning) ---
     df = calculate_financial_growth(df)
     df = calculate_sentiment_change(df)
 
     if df.empty or df['filing_date'].isna().all():
-        print("No valid data remaining. Skipping return calculation.")
+        print("No valid data remaining after initial processing. Skipping market data fetching.")
         return pd.DataFrame()
-        
+
+    # --- Fetch Market Data for all potential periods ---
     min_market_date = df['filing_date'].min() - timedelta(days=120)
-    max_market_date = df['filing_date'].max() + timedelta(days=120)
+    max_market_date = df['filing_date'].max() + timedelta(days=120) + timedelta(days=90) # Add buffer for prediction period
     
     all_market_data = []
-    print("Fetching market data for remaining tickers...")
+    print("Fetching market data for all relevant tickers...")
     for ticker in tqdm(df['ticker'].unique(), desc="Fetching Market Data"):
         market_df = fetch_stock_prices(
             ticker, 
@@ -105,29 +95,70 @@ def engineer_features(processed_filings_df: pd.DataFrame) -> pd.DataFrame:
             all_market_data.append(market_df)
     
     if not all_market_data:
-        print("CRITICAL: No market data fetched. Cannot calculate returns.")
+        print("CRITICAL: No market data fetched for any ticker. Cannot calculate returns.")
         return pd.DataFrame()
     
     full_market_data_df = pd.concat(all_market_data, ignore_index=True)
     full_market_data_df.drop_duplicates(subset=['ticker', 'date'], keep='first', inplace=True)
-    df = calculate_next_quarter_return(df, full_market_data_df)
     
-    # Final NaN drop for features that couldn't be calculated (e.g., first pct_change row)
-    df.dropna(subset=['revenue_growth', 'net_margin', 'sentiment_change', 'next_quarter_return'], inplace=True)
+    df = calculate_next_quarter_return(df, full_market_data_df)
 
+    # --- Split into data with known returns (for training) and unknown returns (for prediction) ---
+    df_has_return = df.dropna(subset=['next_quarter_return']).copy()
+    df_no_return = df[df['next_quarter_return'].isna()].copy()
+
+    final_cleaned_dfs = []
+
+    # --- Aggressive Cleaning for Training Data (df_has_return) ---
+    if not df_has_return.empty:
+        print(f"\nApplying aggressive cleaning to {len(df_has_return['ticker'].unique())} tickers with known returns...")
+        # Filter groups (tickers) that have no nulls in these critical columns
+        df_has_return_clean = df_has_return.groupby('ticker').filter(
+            lambda x: x[['revenue', 'net_income', 'mda_text']].notna().all().all()
+        ).copy()
+        df_has_return_clean.dropna(subset=['revenue_growth', 'net_margin', 'sentiment_change'], inplace=True)
+        
+        if not df_has_return_clean.empty:
+            print(f"{len(df_has_return_clean['ticker'].unique())} tickers remaining after aggressive cleaning for training.")
+            final_cleaned_dfs.append(df_has_return_clean)
+        else:
+            print("No data remaining after aggressive cleaning for training data.")
+
+    # --- Lenient Cleaning for Prediction Data (df_no_return) ---
+    if not df_no_return.empty:
+        print(f"\nApplying lenient cleaning to {len(df_no_return['ticker'].unique())} tickers for prediction data (NaN next_quarter_return)...")
+        # For prediction data, ensure sentiment_score is present, but be lenient on others if NaN is expected
+        df_no_return_clean = df_no_return.dropna(subset=['sentiment_score', 'mda_text']).copy()
+        
+        # Ensure latest unique entries for prediction for each ticker
+        df_no_return_clean = df_no_return_clean.groupby('ticker').tail(1).copy()
+
+        if not df_no_return_clean.empty:
+            print(f"{len(df_no_return_clean['ticker'].unique())} tickers remaining after lenient cleaning for prediction.")
+            final_cleaned_dfs.append(df_no_return_clean)
+        else:
+            print("No data remaining after lenient cleaning for prediction data.")
+
+    if not final_cleaned_dfs:
+        print("Warning: Feature engineering resulted in an empty DataFrame after all cleaning steps.")
+        return pd.DataFrame()
+
+    final_features_df = pd.concat(final_cleaned_dfs, ignore_index=True)
+
+    # --- Final Column Selection and Save ---
     final_feature_columns = [
         'ticker', 'filing_date', 'revenue', 'net_income', 'sentiment_score',
         'revenue_growth', 'net_margin', 'sentiment_change', 'next_quarter_return'
     ]
     # Ensure columns exist before selection
     for col in final_feature_columns:
-        if col not in df.columns:
-            df[col] = np.nan
+        if col not in final_features_df.columns:
+            final_features_df[col] = np.nan
 
-    final_features_df = df[final_feature_columns].copy()
+    final_features_df = final_features_df[final_feature_columns].copy()
     
     if final_features_df.empty:
-        print("Warning: Feature engineering resulted in an empty DataFrame after all cleaning steps.")
+        print("Warning: Final DataFrame is empty after column selection.")
     else:
         os.makedirs(DATA_DIR, exist_ok=True)
         final_features_df.to_excel(FEATURES_PATH, index=False)

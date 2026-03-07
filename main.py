@@ -9,7 +9,7 @@ from src.config import (
 from src.data_loader import load_all_raw_data
 from src.processor import process_filings_for_sentiment
 from src.feature_eng import engineer_features
-from src.model import run_walk_forward_predictions
+from src.model import run_walk_forward_predictions, generate_next_quarter_prediction
 from src.backtester import simulate_portfolio
 
 def run_fetch_step(tickers, num_quarters):
@@ -96,6 +96,17 @@ def run_backtest_step():
     simulate_portfolio(predictions_df.copy())
     return True
 
+def run_predict_latest_step():
+    """Executes the step to generate prediction for the next unseen quarter."""
+    print("\n--- Step 6: Generating Latest Next Quarter Predictions ---")
+    if not os.path.exists(FEATURES_PATH):
+        print(f"ERROR: Features file not found at {FEATURES_PATH}. Please run --engineer first.")
+        return False
+
+    features_df = pd.read_excel(FEATURES_PATH)
+    generate_next_quarter_prediction(features_df.copy())
+    return True
+
 def main():
     parser = argparse.ArgumentParser(
         description="Stock Analysis Pipeline",
@@ -106,6 +117,7 @@ def main():
     parser.add_argument("--engineer", action="store_true", help="Step 3: Engineer features from processed data.")
     parser.add_argument("--train", action="store_true", help="Step 4: Train model using robust walk-forward validation.")
     parser.add_argument("--backtest", action="store_true", help="Step 5: Run portfolio backtest simulation.")
+    parser.add_argument("--predict-latest", action="store_true", help="Step 6: Generate prediction for the next unseen quarter.")
     parser.add_argument("--all", action="store_true", help="Run the entire pipeline from fetch to backtest.")
     
     parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers (e.g., AAPL,MSFT).")
@@ -131,6 +143,9 @@ def main():
 
     if args.all or args.backtest:
         if not run_backtest_step(): return
+    
+    if args.all or args.predict_latest:
+        if not run_predict_latest_step(): return
 
     if not any(vars(args).values()):
         print("No steps selected. Use --all or specify steps like --fetch, --process, etc.")
