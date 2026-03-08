@@ -9,7 +9,7 @@ TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B",
            "GE", "CSCO", "PLTR", "MRK", "WFC", "LRCX", "MS", "PM", "IBM", "GS",
             "RTX", "AMAT", "INTC", "UNH", "AXP", "PEP", "MCD", "TMUS", "C", 
             "GEV", "LIN", "AMGN"] # User-specified list
-NUM_QUARTERS_TO_FETCH = 24 # Approx 6 years to ensure we get data from start of 2020
+NUM_QUARTERS_TO_FETCH = 12
 
 # --- API Keys and Client Initialization ---
 load_dotenv()

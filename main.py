@@ -12,6 +12,11 @@ from src.feature_eng import engineer_features
 from src.model import run_walk_forward_predictions, generate_next_quarter_prediction
 from src.backtester import simulate_portfolio
 
+def get_alpha_path(original_path, is_alpha):
+    if not is_alpha: return original_path
+    base, ext = os.path.splitext(original_path)
+    return f"{base}_alpha{ext}"
+
 def run_fetch_step(tickers, num_quarters):
     """Executes the data fetching step."""
     print("\n--- Step 1: Fetching Raw Data ---")
@@ -70,13 +75,13 @@ def run_process_step(nlp_method="finbert"):
     print(f"Updated processed filings saved to {PROCESSED_FILINGS_PATH} ({len(final_processed_df)} total).")
     return True
 
-def run_engineer_step(nlp_method="finbert"):
+def run_engineer_step(nlp_method="finbert", is_alpha=False):
     """Executes the feature engineering step."""
-    print(f"\n--- Step 3: Engineering Features ({nlp_method}) ---")
+    print(f"\n--- Step 3: Engineering Features ({nlp_method}) [Alpha={is_alpha}] ---")
     
     paths = get_data_paths(nlp_method)
     PROCESSED_FILINGS_PATH = paths["PROCESSED_FILINGS_PATH"]
-    FEATURES_PATH = paths["FEATURES_PATH"]
+    FEATURES_PATH = get_alpha_path(paths["FEATURES_PATH"], is_alpha)
     
     if not os.path.exists(PROCESSED_FILINGS_PATH):
         print(f"ERROR: Processed filings not found at {PROCESSED_FILINGS_PATH}. Please run --process first.")
@@ -90,8 +95,9 @@ def run_engineer_step(nlp_method="finbert"):
     raw_df = pd.read_excel(RAW_FILINGS_PATH)
     
     # Merge sentiment cache with raw data to get mda_text and financials back for engineering
-    # We join on accession_number
+    # We join on accession_number. Drop existing financials in processed_df to avoid duplicates.
     print("Merging sentiment cache with raw filing data context...")
+    processed_df = processed_df.drop(columns=[c for c in ['mda_text', 'revenue', 'net_income'] if c in processed_df.columns])
     merged_df = pd.merge(
         processed_df, 
         raw_df[['accession_number', 'mda_text', 'revenue', 'net_income']], 
@@ -100,32 +106,33 @@ def run_engineer_step(nlp_method="finbert"):
     )
     
     # the engineer function will need the output path
-    engineer_features(merged_df, output_path=FEATURES_PATH)
+    horizon = 5 if is_alpha else 90
+    engineer_features(merged_df, output_path=FEATURES_PATH, horizon_days=horizon, include_ta=is_alpha)
     return True
 
-def run_train_step(nlp_method="finbert"):
+def run_train_step(nlp_method="finbert", is_alpha=False):
     """Executes the model training and validation step using robust walk-forward."""
-    print(f"\n--- Step 4: Training Model ({nlp_method}) ---")
+    print(f"\n--- Step 4: Training Model ({nlp_method}) [Alpha={is_alpha}] ---")
     
     paths = get_data_paths(nlp_method)
-    FEATURES_PATH = paths["FEATURES_PATH"]
-    PREDICTIONS_PATH = paths["PREDICTIONS_PATH"]
+    FEATURES_PATH = get_alpha_path(paths["FEATURES_PATH"], is_alpha)
+    PREDICTIONS_PATH = get_alpha_path(paths["PREDICTIONS_PATH"], is_alpha)
     
     if not os.path.exists(FEATURES_PATH):
         print(f"ERROR: Features file not found at {FEATURES_PATH}. Please run --engineer first.")
         return False
 
     features_df = pd.read_excel(FEATURES_PATH)
-    run_walk_forward_predictions(features_df.copy(), output_path=PREDICTIONS_PATH)
+    run_walk_forward_predictions(features_df.copy(), output_path=PREDICTIONS_PATH, lookahead_days=(5 if is_alpha else 90))
     return True
 
-def run_backtest_step(nlp_method="finbert"):
+def run_backtest_step(nlp_method="finbert", is_alpha=False):
     """Executes the backtesting step."""
-    print(f"\n--- Step 5: Running Portfolio Backtest Simulation ({nlp_method}) ---")
+    print(f"\n--- Step 5: Running Portfolio Backtest Simulation ({nlp_method}) [Alpha={is_alpha}] ---")
     
     paths = get_data_paths(nlp_method)
-    PREDICTIONS_PATH = paths["PREDICTIONS_PATH"]
-    BACKTEST_RESULTS_PATH = paths["BACKTEST_RESULTS_PATH"]
+    PREDICTIONS_PATH = get_alpha_path(paths["PREDICTIONS_PATH"], is_alpha)
+    BACKTEST_RESULTS_PATH = get_alpha_path(paths["BACKTEST_RESULTS_PATH"], is_alpha)
     
     if not os.path.exists(PREDICTIONS_PATH):
         print(f"ERROR: Predictions file not found at {PREDICTIONS_PATH}. Please run --train first.")
@@ -137,16 +144,16 @@ def run_backtest_step(nlp_method="finbert"):
         print("Predictions file is empty. Cannot backtest.")
         return False
         
-    simulate_portfolio(predictions_df.copy(), output_path=BACKTEST_RESULTS_PATH)
+    simulate_portfolio(predictions_df.copy(), output_path=BACKTEST_RESULTS_PATH, frequency=('D' if is_alpha else 'Q'))
     return True
 
-def run_predict_latest_step(nlp_method="finbert"):
+def run_predict_latest_step(nlp_method="finbert", is_alpha=False):
     """Executes the step to generate prediction for the next unseen quarter."""
-    print(f"\n--- Step 6: Generating Latest Next Quarter Predictions ({nlp_method}) ---")
+    print(f"\n--- Step 6: Generating Latest Next Quarter Predictions ({nlp_method}) [Alpha={is_alpha}] ---")
     
     paths = get_data_paths(nlp_method)
-    FEATURES_PATH = paths["FEATURES_PATH"]
-    LATEST_PREDICTIONS_PATH = paths["LATEST_PREDICTIONS_PATH"]
+    FEATURES_PATH = get_alpha_path(paths["FEATURES_PATH"], is_alpha)
+    LATEST_PREDICTIONS_PATH = get_alpha_path(paths["LATEST_PREDICTIONS_PATH"], is_alpha)
     
     if not os.path.exists(FEATURES_PATH):
         print(f"ERROR: Features file not found at {FEATURES_PATH}. Please run --engineer first.")
@@ -168,6 +175,7 @@ def main():
     parser.add_argument("--backtest", action="store_true", help="Step 5: Run portfolio backtest simulation.")
     parser.add_argument("--predict-latest", action="store_true", help="Step 6: Generate prediction for the next unseen quarter.")
     parser.add_argument("--all", action="store_true", help="Run the entire pipeline from fetch to backtest.")
+    parser.add_argument("--alpha", action="store_true", help="Use Short-Term Horizon (5-day) and Technical Analysis features.")
     
     parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers (e.g., AAPL,MSFT).")
     parser.add_argument("--num-quarters", type=int, help="Number of past quarters to fetch.")
@@ -186,16 +194,16 @@ def main():
         if not run_process_step(nlp_method=args.nlp): return
         
     if args.all or args.engineer:
-        if not run_engineer_step(nlp_method=args.nlp): return
+        if not run_engineer_step(nlp_method=args.nlp, is_alpha=args.alpha): return
 
     if args.all or args.train:
-        if not run_train_step(nlp_method=args.nlp): return
+        if not run_train_step(nlp_method=args.nlp, is_alpha=args.alpha): return
 
     if args.all or args.backtest:
-        if not run_backtest_step(nlp_method=args.nlp): return
+        if not run_backtest_step(nlp_method=args.nlp, is_alpha=args.alpha): return
     
     if args.all or args.predict_latest:
-        if not run_predict_latest_step(nlp_method=args.nlp): return
+        if not run_predict_latest_step(nlp_method=args.nlp, is_alpha=args.alpha): return
 
     if not any(vars(args).values()):
         print("No steps selected. Use --all or specify steps like --fetch, --process, etc.")

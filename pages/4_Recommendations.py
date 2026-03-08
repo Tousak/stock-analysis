@@ -62,12 +62,16 @@ st.markdown("""
 st.title("🎯 Strategic Recommendations")
 st.write("Forward-looking AI forecasts for the next fiscal quarter based on fundamental analysis and executive sentiment.")
 
-# --- Sidebar Configuration ---
+st.sidebar.header("Strategy Selection")
+strategy_mode = st.sidebar.radio("Strategy Mode", ["Quarterly Fundamental", "Short-Term Alpha (5-Day + TA)"])
+is_alpha = "Alpha" in strategy_mode
+
 st.sidebar.header("Model Configuration")
 nlp_source = st.sidebar.radio("NLP Intelligence Source", ["Local FinBERT (Leak-Free)", "OpenAI GPT-4o-mini"])
 nlp_method = "finbert" if "FinBERT" in nlp_source else "openai"
 
 use_triplet_input = False
+use_optuna_input = st.sidebar.checkbox("Use Optuna Auto-Tuning (Slower)", value=False)
 if nlp_method == "finbert":
     use_triplet_input = st.sidebar.checkbox("Use Triplet Features (Pos/Neg/Neu)", value=False)
 
@@ -78,6 +82,13 @@ st.sidebar.header("Execution")
 paths = get_data_paths(nlp_method)
 FEATURES_PATH = paths["FEATURES_PATH"]
 LATEST_PREDICTIONS_PATH = paths["LATEST_PREDICTIONS_PATH"]
+
+if is_alpha:
+    def get_alpha_path(p):
+        base, ext = os.path.splitext(p)
+        return f"{base}_alpha{ext}"
+    FEATURES_PATH = get_alpha_path(FEATURES_PATH)
+    LATEST_PREDICTIONS_PATH = get_alpha_path(LATEST_PREDICTIONS_PATH)
 
 # --- Helper functions ---
 def run_prediction_engine():
@@ -91,6 +102,8 @@ def run_prediction_engine():
             generate_next_quarter_prediction(
                 features_df, 
                 output_path=LATEST_PREDICTIONS_PATH,
+                lookahead_days=(5 if is_alpha else 90),
+                use_optuna=use_optuna_input,
                 use_triplet=use_triplet_input
             )
             st.success("New recommendations generated!")
@@ -139,8 +152,9 @@ else:
         if buys_df.empty:
             st.info("No tickers meet the 'Positive Return' criteria at this moment.")
         else:
+            target_label = "Predicted 5-Day Return" if is_alpha else "Predicted Qt Forecast"
             st.dataframe(
-                buys_df[['ticker', 'predicted_return']].style.format({'predicted_return': '{:.2%}'}),
+                buys_df[['ticker', 'predicted_return']].rename(columns={'predicted_return': target_label}).style.format({target_label: '{:.2%}'}),
                 use_container_width=True
             )
             
@@ -155,7 +169,8 @@ else:
                     with c1:
                         st.write(f"**Ticker:** {t}")
                         st.write(f"**Filing Date:** {row['filing_date']}")
-                        st.write(f"**AI Confidence:** Positive ({row['predicted_return']:.2%})")
+                        conf_label = "Short-Term Forecast (5-Day)" if is_alpha else "AI Confidence (Quarterly)"
+                        st.write(f"**{conf_label}:** Positive ({row['predicted_return']:.2%})")
                     with c2:
                         hist_data = get_ticker_chart_data(t)
                         if hist_data is not None:

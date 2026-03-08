@@ -28,25 +28,51 @@ def calculate_sentiment_change(df: pd.DataFrame) -> pd.DataFrame:
             
     return df
 
-def calculate_next_quarter_return(filings_df: pd.DataFrame, market_data_df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates the next quarter's stock return."""
+def calculate_technical_indicators(df: pd.DataFrame, market_df: pd.DataFrame) -> pd.DataFrame:
+    """Calculates RSI, MACD, and Volatility (KISS implementation)."""
+    # Group by ticker to iterate through market data
+    market_grouped = market_df.groupby('ticker')
+    all_ta_features = []
+
+    for ticker, ticker_data in tqdm(market_grouped, desc="Engineering TA Features"):
+        td = ticker_data.sort_values('date').copy()
+        delta = td['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / (loss + 1e-9)
+        td['rsi'] = 100 - (100 / (1 + rs))
+        
+        ema12 = td['Close'].ewm(span=12, adjust=False).mean()
+        ema26 = td['Close'].ewm(span=26, adjust=False).mean()
+        td['macd'] = ema12 - ema26
+        
+        td['volatility'] = (td['High'] - td['Low']) / (td['Open'] + 1e-9)
+        all_ta_features.append(td[['ticker', 'date', 'rsi', 'macd', 'volatility']])
+
+    ta_df = pd.concat(all_ta_features)
+    ta_df['date'] = pd.to_datetime(ta_df['date']).dt.date
+    
+    # Merge with filings
+    df['date_match'] = pd.to_datetime(df['filing_date']).dt.date
+    df = pd.merge(df, ta_df, left_on=['ticker', 'date_match'], right_on=['ticker', 'date'], how='left')
+    return df.drop(columns=['date_match', 'date'])
+
+def calculate_future_return(filings_df: pd.DataFrame, market_data_df: pd.DataFrame, horizon_days: int = 90) -> pd.DataFrame:
+    """Calculates stock return over a given horizon (default 90 days)."""
     filings_df['filing_date'] = pd.to_datetime(filings_df['filing_date'])
     market_data_df['date'] = pd.to_datetime(market_data_df['date']).dt.date
 
     def get_price_on_or_after_date(ticker_market_data, target_date):
         target_date = target_date.date()
         price_series = ticker_market_data[ticker_market_data['date'] == target_date]['Close']
-        if not price_series.empty:
-            return price_series.values[0]
+        if not price_series.empty: return price_series.values[0]
         future_data_series = ticker_market_data[ticker_market_data['date'] > target_date]['Close']
-        if not future_data_series.empty:
-            return future_data_series.values[0]
-        return np.nan
+        return future_data_series.values[0] if not future_data_series.empty else np.nan
 
     returns = []
     market_data_grouped = market_data_df.groupby('ticker')
     
-    for _, row in tqdm(filings_df.iterrows(), total=filings_df.shape[0], desc="Calculating Returns"):
+    for _, row in tqdm(filings_df.iterrows(), total=filings_df.shape[0], desc=f"Calculating {horizon_days}-Day Returns"):
         ticker = row['ticker']
         filing_date = row['filing_date']
         
@@ -57,18 +83,19 @@ def calculate_next_quarter_return(filings_df: pd.DataFrame, market_data_df: pd.D
             continue
 
         price_on_filing_date = get_price_on_or_after_date(current_ticker_market_data, filing_date)
-        future_date = filing_date + timedelta(days=90)
-        price_in_90_days = get_price_on_or_after_date(current_ticker_market_data, future_date)
+        future_date = filing_date + timedelta(days=horizon_days)
+        price_at_horizon = get_price_on_or_after_date(current_ticker_market_data, future_date)
 
-        if pd.notna(price_on_filing_date) and pd.notna(price_in_90_days) and price_on_filing_date != 0:
-            returns.append((price_in_90_days - price_on_filing_date) / price_on_filing_date)
+        if pd.notna(price_on_filing_date) and pd.notna(price_at_horizon) and price_on_filing_date != 0:
+            returns.append((price_at_horizon - price_on_filing_date) / price_on_filing_date)
         else:
             returns.append(np.nan)
             
-    filings_df['next_quarter_return'] = returns
+    col_name = 'next_quarter_return' if horizon_days == 90 else f'return_{horizon_days}d'
+    filings_df[col_name] = returns
     return filings_df
 
-def engineer_features(processed_filings_df: pd.DataFrame, output_path: str) -> pd.DataFrame:
+def engineer_features(processed_filings_df: pd.DataFrame, output_path: str, horizon_days: int = 90, include_ta: bool = False) -> pd.DataFrame:
     """
     Orchestrates feature engineering, with differentiated cleaning for training and prediction data.
     Aggressively cleans historical data for model training.
@@ -111,11 +138,16 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str) -> p
     full_market_data_df = pd.concat(all_market_data, ignore_index=True)
     full_market_data_df.drop_duplicates(subset=['ticker', 'date'], keep='first', inplace=True)
     
-    df = calculate_next_quarter_return(df, full_market_data_df)
+    if include_ta:
+        print("Calculating Technical indicators (RSI, MACD, Volatility)...")
+        df = calculate_technical_indicators(df, full_market_data_df)
+    
+    df = calculate_future_return(df, full_market_data_df, horizon_days=horizon_days)
 
     # --- Split into data with known returns (for training) and unknown returns (for prediction) ---
-    df_has_return = df.dropna(subset=['next_quarter_return']).copy()
-    df_no_return = df[df['next_quarter_return'].isna()].copy()
+    target_col = 'next_quarter_return' if horizon_days == 90 else f'return_{horizon_days}d'
+    df_has_return = df.dropna(subset=[target_col]).copy()
+    df_no_return = df[df[target_col].isna()].copy()
 
     final_cleaned_dfs = []
 
@@ -124,6 +156,9 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str) -> p
         print(f"\nApplying granular cleaning to {len(df_has_return)} historical rows...")
         # Only drop rows that are actually missing critical features
         critical_cols = ['revenue', 'net_income', 'sentiment_score', 'revenue_growth', 'net_margin', 'sentiment_change']
+        if include_ta:
+            critical_cols += ['rsi', 'macd', 'volatility']
+        
         df_has_return_clean = df_has_return.dropna(subset=critical_cols).copy()
         
         if not df_has_return_clean.empty:
@@ -136,7 +171,11 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str) -> p
     if not df_no_return.empty:
         print(f"\nApplying lenient cleaning to {len(df_no_return)} tickers for prediction...")
         # For prediction data, ensure sentiment features are present
-        df_no_return_clean = df_no_return.dropna(subset=['sentiment_score', 'mda_text']).copy()
+        cols_to_check = ['sentiment_score', 'mda_text']
+        if include_ta:
+            cols_to_check += ['rsi', 'macd', 'volatility']
+        
+        df_no_return_clean = df_no_return.dropna(subset=cols_to_check).copy()
         
         # Ensure latest unique entries for prediction for each ticker
         df_no_return_clean = df_no_return_clean.groupby('ticker').tail(1).copy()
@@ -156,10 +195,12 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str) -> p
     # --- Final Column Selection and Save ---
     final_feature_columns = [
         'ticker', 'filing_date', 'revenue', 'net_income', 'sentiment_score',
-        'revenue_growth', 'net_margin', 'sentiment_change', 'next_quarter_return',
+        'revenue_growth', 'net_margin', 'sentiment_change', target_col,
         'sentiment_pos', 'sentiment_neg', 'sentiment_neu',
         'sentiment_pos_change', 'sentiment_neg_change', 'sentiment_neu_change'
     ]
+    if include_ta:
+        final_feature_columns += ['rsi', 'macd', 'volatility']
     # Ensure columns exist before selection
     for col in final_feature_columns:
         if col not in final_features_df.columns:
