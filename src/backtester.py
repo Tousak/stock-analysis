@@ -3,9 +3,9 @@ import os
 from tqdm.auto import tqdm
 from datetime import timedelta
 
-from src.config import INITIAL_CAPITAL, BACKTEST_RESULTS_PATH, PREDICTIONS_PATH, DATA_DIR
+from src.config import INITIAL_CAPITAL, DATA_DIR
 
-def simulate_portfolio(predictions_df: pd.DataFrame, initial_capital: float = INITIAL_CAPITAL, start_year: int = 2021) -> pd.DataFrame:
+def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_capital: float = INITIAL_CAPITAL, start_year: int = 2021) -> pd.DataFrame:
     """
     Simulates a portfolio strategy with detailed logging for debugging.
     """
@@ -87,16 +87,16 @@ def simulate_portfolio(predictions_df: pd.DataFrame, initial_capital: float = IN
     final_df = pd.DataFrame(portfolio_history)
     
     os.makedirs(DATA_DIR, exist_ok=True)
-    final_df.to_excel(BACKTEST_RESULTS_PATH, index=False)
-    print(f"\nBacktest results saved to {BACKTEST_RESULTS_PATH}")
+    final_df.to_excel(output_path, index=False)
+    print(f"\nBacktest results saved to {output_path}")
     
     return final_df
 
 if __name__ == "__main__":
     print("Running backtester.py example (notebook-style)...")
     try:
-        predictions_data = pd.read_excel(PREDICTIONS_PATH)
-        portfolio_results = simulate_portfolio(predictions_data.copy())
+        predictions_data = pd.read_excel("data/fetched/predictions_finbert.xlsx")
+        portfolio_results = simulate_portfolio(predictions_data.copy(), output_path="data/fetched/backtest_results_finbert.xlsx")
         
         if not portfolio_results.empty:
             print("\nPortfolio Simulation Results:")
@@ -106,6 +106,6 @@ if __name__ == "__main__":
             print(f"Total return: {((final_value / INITIAL_CAPITAL) - 1):.2%}")
 
     except FileNotFoundError:
-        print(f"Error: {PREDICTIONS_PATH} not found. Please run --train first.")
+        print("Error: Predictions file not found. Please run --train first.")
     except Exception as e:
         print(f"An error occurred during backtester.py example: {e}")

@@ -10,19 +10,19 @@ from src.processor import process_filings_for_sentiment
 from src.feature_eng import engineer_features
 from src.config import TICKERS, NUM_QUARTERS_TO_FETCH, RAW_FILINGS_PATH, get_data_paths
 
-# Get paths explicitly for the openai pipeline
-paths = get_data_paths("openai")
+# Get paths explicitly for the finbert pipeline
+paths = get_data_paths("finbert")
 PROCESSED_FILINGS_PATH = paths["PROCESSED_FILINGS_PATH"]
 FEATURES_PATH = paths["FEATURES_PATH"]
 
 st.set_page_config(
-    page_title="Data Pipeline",
-    page_icon="⬇️",
+    page_title="Data Pipeline (FinBERT)",
+    page_icon="🤖",
     layout="wide"
 )
 
-st.title("⬇️ Data Pipeline")
-st.write("This is the 'engine room' of the application. Here you can run the slow and expensive data gathering and processing tasks. The output of each step is cached, so the pipeline will only fetch or process new data.")
+st.title("🤖 Data Pipeline (FinBERT)")
+st.write("This is the alternative 'engine room' using the local HuaggingFace **ProsusAI/finbert** model. This NLP pipeline is completely free of future-looking data leakage, making it optimal for robust historical backtesting.")
 
 # --- Ticker Input ---
 st.header("1. Configure Tickers")
@@ -60,9 +60,13 @@ if st.button("Step 1: Fetch New Filings", use_container_width=True):
         st.warning("Please enter at least one ticker.")
 
 # Step 2: Run Sentiment Analysis
-if st.button("Step 2: Run Sentiment Analysis", use_container_width=True):
+if st.button("Step 2: Run Sentiment Analysis (FinBERT)", use_container_width=True):
     try:
         raw_df = pd.read_excel(RAW_FILINGS_PATH)
+        
+        # We explicitly use the finbert method here
+        method_str = "finbert"
+        
         # This simplified call re-uses the logic from main.py's run_process_step
         # A more advanced version would be a dedicated function.
         # For simplicity, we create a temporary function here.
@@ -78,7 +82,7 @@ if st.button("Step 2: Run Sentiment Analysis", use_container_width=True):
                 print("No new filings to process for sentiment.")
                 return
 
-            processed_df_new = process_filings_for_sentiment(filings_to_process.copy(), nlp_method="openai")
+            processed_df_new = process_filings_for_sentiment(filings_to_process.copy(), nlp_method=method_str)
             final_processed_df = pd.concat([processed_df_existing, processed_df_new], ignore_index=True)
             final_processed_df.to_excel(PROCESSED_FILINGS_PATH, index=False)
             print(f"Sentiment analysis complete. Saved to {PROCESSED_FILINGS_PATH}.")

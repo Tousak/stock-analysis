@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 from src.config import (
-    RAW_FILINGS_PATH, PROCESSED_FILINGS_PATH, FEATURES_PATH, PREDICTIONS_PATH,
+    RAW_FILINGS_PATH, get_data_paths,
     TICKERS, NUM_QUARTERS_TO_FETCH, EDGAR_IDENTITY
 )
 from src.data_loader import load_all_raw_data
@@ -21,9 +21,13 @@ def run_fetch_step(tickers, num_quarters):
     load_all_raw_data(tickers=tickers, num_quarters=num_quarters)
     return True
 
-def run_process_step():
+def run_process_step(nlp_method="finbert"):
     """Executes the sentiment analysis processing step with caching."""
-    print("\n--- Step 2: Processing Data (Sentiment Analysis) ---")
+    print(f"\n--- Step 2: Processing Data (Sentiment Analysis: {nlp_method}) ---")
+    
+    paths = get_data_paths(nlp_method)
+    PROCESSED_FILINGS_PATH = paths["PROCESSED_FILINGS_PATH"]
+    
     if not os.path.exists(RAW_FILINGS_PATH):
         print(f"ERROR: Raw filings not found at {RAW_FILINGS_PATH}. Please run --fetch first.")
         return False
@@ -48,8 +52,8 @@ def run_process_step():
         print("No new filings to process for sentiment.")
         return True
 
-    print(f"Found {len(filings_to_process)} new filings to process for sentiment...")
-    processed_df_new = process_filings_for_sentiment(filings_to_process.copy())
+    print(f"Found {len(filings_to_process)} new filings to process for sentiment using {nlp_method}...")
+    processed_df_new = process_filings_for_sentiment(filings_to_process.copy(), nlp_method=nlp_method)
     
     final_processed_df = pd.concat([processed_df_existing, processed_df_new], ignore_index=True)
     final_processed_df.drop_duplicates(subset=['accession_number'], keep='last', inplace=True)
@@ -58,31 +62,47 @@ def run_process_step():
     print(f"Updated processed filings saved to {PROCESSED_FILINGS_PATH} ({len(final_processed_df)} total).")
     return True
 
-def run_engineer_step():
+def run_engineer_step(nlp_method="finbert"):
     """Executes the feature engineering step."""
-    print("\n--- Step 3: Engineering Features ---")
+    print(f"\n--- Step 3: Engineering Features ({nlp_method}) ---")
+    
+    paths = get_data_paths(nlp_method)
+    PROCESSED_FILINGS_PATH = paths["PROCESSED_FILINGS_PATH"]
+    FEATURES_PATH = paths["FEATURES_PATH"]
+    
     if not os.path.exists(PROCESSED_FILINGS_PATH):
         print(f"ERROR: Processed filings not found at {PROCESSED_FILINGS_PATH}. Please run --process first.")
         return False
     
     processed_df = pd.read_excel(PROCESSED_FILINGS_PATH)
-    engineer_features(processed_df.copy())
+    # the engineer function will need the output path
+    engineer_features(processed_df.copy(), output_path=FEATURES_PATH)
     return True
 
-def run_train_step():
+def run_train_step(nlp_method="finbert"):
     """Executes the model training and validation step using robust walk-forward."""
-    print("\n--- Step 4: Training Model (Robust Walk-Forward) ---")
+    print(f"\n--- Step 4: Training Model ({nlp_method}) ---")
+    
+    paths = get_data_paths(nlp_method)
+    FEATURES_PATH = paths["FEATURES_PATH"]
+    PREDICTIONS_PATH = paths["PREDICTIONS_PATH"]
+    
     if not os.path.exists(FEATURES_PATH):
         print(f"ERROR: Features file not found at {FEATURES_PATH}. Please run --engineer first.")
         return False
 
     features_df = pd.read_excel(FEATURES_PATH)
-    run_walk_forward_predictions(features_df.copy())
+    run_walk_forward_predictions(features_df.copy(), output_path=PREDICTIONS_PATH)
     return True
 
-def run_backtest_step():
+def run_backtest_step(nlp_method="finbert"):
     """Executes the backtesting step."""
-    print("\n--- Step 5: Running Portfolio Backtest Simulation ---")
+    print(f"\n--- Step 5: Running Portfolio Backtest Simulation ({nlp_method}) ---")
+    
+    paths = get_data_paths(nlp_method)
+    PREDICTIONS_PATH = paths["PREDICTIONS_PATH"]
+    BACKTEST_RESULTS_PATH = paths["BACKTEST_RESULTS_PATH"]
+    
     if not os.path.exists(PREDICTIONS_PATH):
         print(f"ERROR: Predictions file not found at {PREDICTIONS_PATH}. Please run --train first.")
         return False
@@ -93,18 +113,23 @@ def run_backtest_step():
         print("Predictions file is empty. Cannot backtest.")
         return False
         
-    simulate_portfolio(predictions_df.copy())
+    simulate_portfolio(predictions_df.copy(), output_path=BACKTEST_RESULTS_PATH)
     return True
 
-def run_predict_latest_step():
+def run_predict_latest_step(nlp_method="finbert"):
     """Executes the step to generate prediction for the next unseen quarter."""
-    print("\n--- Step 6: Generating Latest Next Quarter Predictions ---")
+    print(f"\n--- Step 6: Generating Latest Next Quarter Predictions ({nlp_method}) ---")
+    
+    paths = get_data_paths(nlp_method)
+    FEATURES_PATH = paths["FEATURES_PATH"]
+    LATEST_PREDICTIONS_PATH = paths["LATEST_PREDICTIONS_PATH"]
+    
     if not os.path.exists(FEATURES_PATH):
         print(f"ERROR: Features file not found at {FEATURES_PATH}. Please run --engineer first.")
         return False
 
     features_df = pd.read_excel(FEATURES_PATH)
-    generate_next_quarter_prediction(features_df.copy())
+    generate_next_quarter_prediction(features_df.copy(), output_path=LATEST_PREDICTIONS_PATH)
     return True
 
 def main():
@@ -122,6 +147,7 @@ def main():
     
     parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers (e.g., AAPL,MSFT).")
     parser.add_argument("--num-quarters", type=int, help="Number of past quarters to fetch.")
+    parser.add_argument("--nlp", type=str, choices=["openai", "finbert"], default="finbert", help="NLP engine for sentiment analysis.")
     
     args = parser.parse_args()
 
@@ -133,19 +159,19 @@ def main():
         if not run_fetch_step(current_tickers, current_num_quarters): return
 
     if args.all or args.process:
-        if not run_process_step(): return
+        if not run_process_step(nlp_method=args.nlp): return
         
     if args.all or args.engineer:
-        if not run_engineer_step(): return
+        if not run_engineer_step(nlp_method=args.nlp): return
 
     if args.all or args.train:
-        if not run_train_step(): return
+        if not run_train_step(nlp_method=args.nlp): return
 
     if args.all or args.backtest:
-        if not run_backtest_step(): return
+        if not run_backtest_step(nlp_method=args.nlp): return
     
     if args.all or args.predict_latest:
-        if not run_predict_latest_step(): return
+        if not run_predict_latest_step(nlp_method=args.nlp): return
 
     if not any(vars(args).values()):
         print("No steps selected. Use --all or specify steps like --fetch, --process, etc.")

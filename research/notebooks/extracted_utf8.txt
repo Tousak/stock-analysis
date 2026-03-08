@@ -1,0 +1,1309 @@
+
+================================================================================
+--- research/notebooks\data_fetch.ipynb ---
+================================================================================
+import yfinance as yf
+
+ticker = yf.Ticker("AAPL")
+# This gets quarterly financials
+quarterly_income = ticker.quarterly_financials
+
+----------------------------------------
+ticker = yf.Ticker("NVDA")
+
+# 1. Peek at the company bio and key stats
+print(f"Business Summary: {ticker.info['longBusinessSummary'][:200]}...")
+print(f"Current P/E Ratio: {ticker.info.get('trailingPE')}")
+
+# 2. View only the most recent quarterly Revenue
+q_income = ticker.quarterly_income_stmt
+if not q_income.empty:
+    print(q_income.loc['Total Revenue'])
+
+# 3. Find when the next earnings date is
+print(ticker.calendar)
+----------------------------------------
+# Print a clean list of all 100+ metadata fields available
+for key in sorted(ticker.info.keys()):
+    print(key)
+----------------------------------------
+target_metrics = ['trailingPE', 'forwardPE', 'profitMargins', 'debtToEquity', 'revenueGrowth', 'recommendationKey']
+filtered_data = {key: ticker.info.get(key) for key in target_metrics}
+print(filtered_data)
+----------------------------------------
+import requests
+import pandas as pd
+
+# 1. Setup - You MUST use a real email or they will block you
+headers = {'User-Agent': "tous.honza@gmail.com"}
+
+# 2. Get the CIK (Apple is 0000320193)
+# Note: CIK must be 10 digits (padded with zeros)
+cik = "0000320193"
+url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+
+response = requests.get(url, headers=headers)
+data = response.json()
+
+# 3. Filter for 10-Q (Quarterly Reports)
+filings = pd.DataFrame(data['filings']['recent'])
+quarterly_reports = filings[filings['form'] == '10-Q']
+
+# Show the most recent 5 quarterly filings
+print(quarterly_reports[['filingDate', 'accessionNumber', 'primaryDocument']].head())
+----------------------------------------
+# Create the URL to the actual HTML report
+accession = quarterly_reports.iloc[0]['accessionNumber'].replace('-', '')
+doc_name = quarterly_reports.iloc[0]['primaryDocument']
+report_url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{doc_name}"
+
+print(f"Full Report Link: {report_url}")
+----------------------------------------
+from edgar import set_identity, Company
+
+# 1. Required SEC identification
+set_identity("Honza Tous honza.tous@gmail.com")
+
+# 2. Find the company and get latest quarterly filing
+company = Company("AAPL")
+latest_10q = company.get_filings(form="10-Q").latest()
+
+# 3. Convert to Data Object
+tenq = latest_10q.obj()
+
+# 4. Extract MD&A using bracket notation
+# This is now the standard way in the latest edgartools
+mda = tenq['Item 2']
+
+print("--- MD&A Section Found ---")
+print(mda[:1000])
+----------------------------------------
+# Lists all sections available for bracket access
+print(tenq.sections)
+----------------------------------------
+# Access the financial statements object
+financials = tenq.financials
+
+if financials:
+    # See available statements (Balance Sheet, Income Statement, etc.)
+    print(financials.list_statements())
+    
+    # Example: Peek at the Income Statement
+    print(financials.income_statement)
+----------------------------------------
+# Lists all methods and attributes
+print(dir(tenq))
+
+# Filter for just the useful properties (skipping double-underscore ones)
+properties = [attr for attr in dir(tenq) if not attr.startswith('_')]
+print(properties)
+----------------------------------------
+print(mda)
+----------------------------------------
+# This shows you the table of contents for the report
+print(tenq.get_structure())
+----------------------------------------
+# 1. Get the Date & Company
+print(f"Company: {tenq.company}")
+print(f"Reporting Period: {tenq.period_of_report}")
+
+# 2. Get the Numbers (Income Statement)
+# This usually returns a Pandas DataFrame-like object
+income = tenq.income_statement
+print("\n--- Recent Revenue/Income ---")
+print(income)
+
+# 3. Get the Text (MD&A)
+# We use 'Item 2' because it's standard for 10-Qs
+mda_text = tenq['Item 2']
+print(f"\n--- MD&A Text Length: {len(mda_text)} characters ---")
+----------------------------------------
+# Use the standardized financial methods instead of manual DataFrame indexing
+financials = tenq.financials
+
+# 1. Get Net Income safely
+net_income = financials.get_net_income()
+print(f"Standardized Net Income: {net_income:,.0f}" if net_income else "Net Income not found")
+
+# 2. Get Revenue safely
+revenue = financials.get_revenue()
+print(f"Standardized Revenue: {revenue:,.0f}" if revenue else "Revenue not found")
+
+# 3. If you still need the DataFrame, list the row names to see what's actually there
+income_df = tenq.income_statement.to_dataframe()
+print("\nActual row names in this filing:")
+print(income_df.index.tolist()[:10]) # Print first 10 row names
+----------------------------------------
+# Extract the Management's Discussion and Analysis
+mda_text = tenq['Item 2']
+
+# Save it to a file if you want to inspect it manually
+with open("mda_report.txt", "w", encoding="utf-8") as f:
+    f.write(mda_text)
+----------------------------------------
+# Safe chunking strategy
+mda_text = None
+
+# Try to get Item 2 (MD&A) specifically
+try:
+    mda_text = tenq['Item 2']
+except KeyError:
+    print("Item 2 not found by index. Checking available items...")
+    print(f"Available items: {tenq.items}")
+
+if mda_text:
+    # Manually chunk the text by paragraphs (double newlines)
+    # This replaces the missing 'chunked_document'
+    manual_chunks = [p.strip() for p in mda_text.split('\n\n') if len(p.strip()) > 50]
+    
+    print(f"\nSuccessfully created {len(manual_chunks)} chunks manually.")
+    for i, chunk in enumerate(manual_chunks[:3]):
+        print(f"--- Chunk {i} ---\n{chunk[:150]}...")
+else:
+    # Final fallback: Use the full text of the report
+    print("Item 2 text missing. Falling back to full filing text.")
+    full_text = latest_10q.text()
+    print(full_text[:500])
+----------------------------------------
+
+================================================================================
+--- research/notebooks\exploratory_data_analysis.ipynb ---
+================================================================================
+import pandas as pd\n
+import matplotlib.pyplot as plt\n
+import seaborn as sns\n
+import os\n
+import sys\n
+\n
+# Add the parent directory to the Python path to import from src.config\n
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '..', '..')))\n
+from src.config import FEATURES_PATH\n
+\n
+# Set display options for pandas DataFrames\n
+pd.set_option('display.max_columns', None)\n
+pd.set_option('display.max_rows', 100)\n
+pd.set_option('display.width', 1000)\n
+\n
+print(f"Attempting to load features from: {FEATURES_PATH}")
+----------------------------------------
+# Load the features dataset\n
+try:\n
+    features_df = pd.read_excel(FEATURES_PATH)\n
+    print("Features dataset loaded successfully.")\n
+except FileNotFoundError:\n
+    print(f"Error: {FEATURES_PATH} not found. Please ensure the pipeline has been run to generate this file.")\n
+    features_df = pd.DataFrame() # Create an empty DataFrame to prevent further errors\n
+except Exception as e:\n
+    print(f"An error occurred while loading features.xlsx: {e}")\n
+    features_df = pd.DataFrame()
+----------------------------------------
+if not features_df.empty:\n
+    print("### DataFrame Head ###")\n
+    display(features_df.head())\n
+\n
+    print("\n### DataFrame Info ###")\n
+    features_df.info()\n
+\n
+    print("\n### DataFrame Description (Numerical Features) ###")\n
+    display(features_df.describe())
+----------------------------------------
+if not features_df.empty:\n
+    print(f"Number of unique tickers: {features_df['ticker'].nunique()}")\n
+    print(f"Unique tickers: {features_df['ticker'].unique().tolist()}")\n
+\n
+    features_df['filing_date'] = pd.to_datetime(features_df['filing_date'])\n
+    print(f"\nFiling dates range from {features_df['filing_date'].min().strftime('%Y-%m-%d')} to {features_df['filing_date'].max().strftime('%Y-%m-%d')}")\n
+\n
+    print("\nNumber of data points per ticker:")\n
+    display(features_df['ticker'].value_counts().sort_index())
+----------------------------------------
+if not features_df.empty:\n
+    print("### Missing values per column ###")\n
+    missing_values = features_df.isnull().sum()\n
+    display(missing_values[missing_values > 0].sort_values(ascending=False))\n
+\n
+    # Identify rows where 'next_quarter_return' is NaN (these are candidates for prediction)\n
+    nan_next_quarter_return_df = features_df[features_df['next_quarter_return'].isna()].copy()\n
+    print("\n### Data points with NaN 'next_quarter_return' (candidates for next quarter prediction) ###")\n
+    if not nan_next_quarter_return_df.empty:\n
+        display(nan_next_quarter_return_df[['ticker', 'filing_date']].sort_values(by=['ticker', 'filing_date']))\n
+        print(f"Number of tickers with NaN 'next_quarter_return': {nan_next_quarter_return_df['ticker'].nunique()}")\n
+        print(f"Tickers with NaN 'next_quarter_return': {nan_next_quarter_return_df['ticker'].unique().tolist()}")\n
+    else:\n
+        print("No data points with NaN 'next_quarter_return' found. This might indicate that all historical data has known outcomes, or that latest filings were dropped during feature engineering.")
+----------------------------------------
+if not features_df.empty:\n
+    # Select numerical features for plotting\n
+    numerical_features = ['revenue_growth', 'net_margin', 'sentiment_score', 'sentiment_change', 'next_quarter_return']\n
+    \n
+    plt.figure(figsize=(15, 10))\n
+    for i, feature in enumerate(numerical_features):\n
+        if feature in features_df.columns:\n
+            plt.subplot(2, 3, i + 1) # Adjust subplot grid as needed\n
+            sns.histplot(features_df[feature].dropna(), kde=True)\n
+            plt.title(f'Distribution of {feature}')\n
+    plt.tight_layout()\n
+    plt.show()\n
+\n
+    # Correlation matrix\n
+    print("\n### Correlation Matrix of Numerical Features ###")\n
+    correlation_matrix = features_df[numerical_features].corr()\n
+    plt.figure(figsize=(8, 6))\n
+    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt=".2f")\n
+    plt.title('Correlation Matrix')\n
+    plt.show()
+----------------------------------------
+
+================================================================================
+--- research/notebooks\llm_api_call.ipynb ---
+================================================================================
+from openai import OpenAI
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file FIRST
+load_dotenv()
+
+# Now, initialize the client. os.getenv() will find the key.
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
+)
+
+# Use the correct method and parameter structure
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "user", "content": "What is the capital city of Czechia?"}
+    ]
+)
+
+# Access the response text correctly
+print(response.choices[0].message.content)
+----------------------------------------
+
+================================================================================
+--- research/notebooks\news_api_playgraound.ipynb ---
+================================================================================
+import requests
+import pandas as pd
+from datetime import datetime
+
+# REPLACE WITH YOUR ACTUAL KEY
+API_KEY = "88c59f962d7e4c219ed3340a2ce3773b"
+
+# Setup the endpoint
+url = "https://newsapi.org/v2/everything"
+----------------------------------------
+# Configuration
+QUERY = "Nvidia"
+TARGET_DATE = "2026-02-09" # Example: Yesterday (Must be within last 30 days)
+
+print(f"Configured to search for '{QUERY}' on {TARGET_DATE}...")
+----------------------------------------
+parameters = {
+    "q": QUERY,
+    "from": TARGET_DATE,
+    "to": TARGET_DATE,      # Same day to restrict to 24h
+    "sortBy": "popularity", # Options: relevancy, popularity, publishedAt
+    "pageSize": 100,        # MAX allowed per request
+    "language": "en",
+    "apiKey": API_KEY
+}
+
+# Make the request
+response = requests.get(url, params=parameters)
+data = response.json()
+
+# Basic Error Handling
+if data["status"] == "ok":
+    total_found = data["totalResults"]
+    articles = data["articles"]
+    print(f"Success! The API found {total_found} articles total.")
+    print(f"Retrieved {len(articles)} articles (Free tier limit).")
+else:
+    print("Error:", data.get("message"))
+----------------------------------------
+if data["status"] == "ok" and len(articles) > 0:
+    # Extract only relevant fields for NLP
+    clean_data = []
+    for art in articles:
+        clean_data.append({
+            "title": art["title"],
+            "description": art["description"],
+            "content": art["content"],
+            "source": art["source"]["name"],
+            "published_at": art["publishedAt"]
+        })
+
+    # Create DataFrame
+    df = pd.DataFrame(clean_data)
+    
+    # Remove rows where description or content is empty (crucial for training)
+    df = df.dropna(subset=['description', 'content'])
+    
+    # Show the first few rows
+    display(df.head())
+    
+    # Optional: Save to CSV for your SetFit project
+    # df.to_csv(f"nvidia_news_{TARGET_DATE}.csv", index=False)
+    # print("Saved to CSV.")
+else:
+    print("No data to process.")
+----------------------------------------
+# Assuming 'articles' variable still holds the raw API data from Cell 3
+if len(articles) > 0:
+    clean_data = []
+    for art in articles:
+        clean_data.append({
+            "title": art["title"],
+            "description": art["description"],
+            "content": art["content"],
+            "source": art["source"]["name"],
+            "published_at": art["publishedAt"],
+            "url": art["url"]  # <--- THIS WAS MISSING
+        })
+
+    # Re-create the DataFrame
+    df = pd.DataFrame(clean_data)
+    
+    # Remove rows where crucial data is missing
+    df = df.dropna(subset=['url', 'title'])
+    
+    print(f"DataFrame recreated with {len(df)} rows.")
+    print("Columns:", df.columns.tolist())
+    
+    # Check the first URL to be sure
+    print(f"Sample URL: {df.iloc[0]['url']}")
+else:
+    print("No articles found in previous step.")
+----------------------------------------
+from newspaper import Article
+import time
+
+def get_full_article_text(url):
+    try:
+        article = Article(url)
+        article.download()
+        article.parse()
+        # Optional: article.nlp() # Uncomment if you want auto-keywords/summary
+        return article.text
+    except Exception as e:
+        # If scraping fails (403 Forbidden, timeout, etc.), return None
+        return None
+----------------------------------------
+# Create a new column for full text
+df['full_text'] = None
+
+print(f"Starting scrape for {len(df)} articles...")
+
+for index, row in df.iterrows():
+    url = row['url'] # Assumes your DataFrame has a 'url' column from the API response
+    
+    # Fetch text
+    full_text = get_full_article_text(url)
+    
+    # Save to DataFrame
+    df.at[index, 'full_text'] = full_text
+    
+    # Simple progress indicator
+    if index % 10 == 0:
+        print(f"Processed {index} articles...")
+        
+    # Be polite to servers (optional but recommended)
+    # time.sleep(0.5) 
+
+# Remove rows where scraping failed (paywalls/blocks)
+df_clean = df.dropna(subset=['full_text'])
+df_clean = df_clean[df_clean['full_text'].str.len() > 200] # Remove very short errors
+
+print(f"Done! Successfully scraped {len(df_clean)} full articles.")
+display(df_clean[['title', 'full_text']].head())
+----------------------------------------
+from transformers import pipeline
+
+# Load the specific FinBERT model
+# device=0 uses GPU if available, set to -1 for CPU
+sentiment_pipeline = pipeline("text-classification", model="ProsusAI/finbert", return_all_scores=True)
+
+print("FinBERT model loaded successfully.")
+----------------------------------------
+from huggingface_hub import snapshot_download
+
+# This downloads the model files to a folder named 'local_finbert'
+local_model_path = snapshot_download(repo_id="ProsusAI/finbert", local_dir="./local_finbert")
+
+print(f"Model downloaded to: {local_model_path}")
+----------------------------------------
+import os
+
+# 1. Force the system to ignore OpenMP conflicts (common on Windows)
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+# 2. Import torch FIRST, before anything else
+import torch
+
+# 3. Then import transformers
+from transformers import pipeline
+
+print(f"Torch loaded successfully: {torch.__version__}")
+
+# Now load the model
+sentiment_pipeline = pipeline("text-classification", model="ProsusAI/finbert", device=-1)
+print("Model loaded!")
+----------------------------------------
+df.info()
+
+----------------------------------------
+df.to_excel(f"nvidia_news_{TARGET_DATE}.xlsx", index=False)
+----------------------------------------
+
+================================================================================
+--- research/notebooks\quarterly_prediction.ipynb ---
+================================================================================
+import pandas as pd
+import yfinance as yf
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from edgar import set_identity, Company
+import sys
+
+# This moves up two levels from 'research/notebooks' to 'stock-analysis'
+path_to_root = os.path.abspath(os.path.join('..', '..'))
+
+if path_to_root not in sys.path:
+    sys.path.append(path_to_root)
+
+from research.PyCode.sentiment_analysis import get_openai_sentiment
+
+# 1. Notebook Configuration
+plt.style.use('ggplot')
+set_identity('Honza Tous honza.tous@gmail.com')
+----------------------------------------
+import pandas as pd
+from edgar import Company
+import re
+from tqdm import tqdm
+
+# List of Top 10 Companies (by approx market cap)
+tickers = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
+num_quarters = 20
+
+raw_data = []
+
+print(f"Starting extraction for {len(tickers)} companies...")
+
+# --- Outer Loop: Iterate through Companies ---
+for ticker in tickers:
+    print(f"\nProcessing {ticker}...")
+    
+    try:
+        company = Company(ticker)
+        filings = company.get_filings(form="10-Q")
+        
+        # Check if we have enough filings
+        if not filings:
+            print(f"No 10-Q filings found for {ticker}")
+            continue
+            
+        meta_df = filings.to_pandas()
+        target_indices = meta_df.head(num_quarters).index
+        
+        # --- Inner Loop: Iterate through Quarters ---
+        # We use tqdm here to show progress for this specific company
+        for idx in tqdm(target_indices, desc=f"Extracting {ticker}", leave=False):
+            filing = filings[int(idx)]
+            
+            # 1. Get the full document as Markdown text
+            full_text = filing.markdown()
+            
+            # 2. Use Regex to find the text between Item 2 and Item 3
+            # (Using your robust regex pattern)
+            pattern = re.compile(
+                r'(Item\s+2[.:]?\s+Management.*?)(?=Item\s+3[.:]?)', 
+                re.IGNORECASE | re.DOTALL
+            )
+            
+            matches = pattern.findall(full_text)
+            
+            mda_text = ""
+            if matches:
+                # Take the longest match (avoids Table of Contents snippets)
+                mda_text = max(matches, key=len)
+            
+            # Financials (standard lookup)
+            tenq = filing.obj()
+            revenue = None
+            net_income = None
+            
+            # Safe access to financials
+            if tenq and hasattr(tenq, 'financials') and tenq.financials:
+                revenue = tenq.financials.get_revenue()
+                net_income = tenq.financials.get_net_income()
+
+            # Append to list with the TICKER column
+            raw_data.append({
+                'ticker': ticker,  # <--- Added Ticker Column
+                'date': filing.filing_date,
+                'revenue': revenue,
+                'net_income': net_income,
+                'mda_text': mda_text.strip()
+            })
+            
+    except Exception as e:
+        print(f"Error processing {ticker}: {e}")
+        continue
+
+# Create final flat DataFrame
+df_raw = pd.DataFrame(raw_data)
+
+print("\n--- Extraction Complete ---")
+print(f"Total rows collected: {len(df_raw)}")
+print(df_raw[['ticker', 'date', 'revenue']].head())
+
+# Optional: Check distribution
+print("\nFilings per company:")
+print(df_raw['ticker'].value_counts())
+----------------------------------------
+import openpyxl
+df_raw.to_excel('companies_data.xlsx', index=False)
+----------------------------------------
+print(df_raw.columns)
+----------------------------------------
+# Check missing values per ticker
+missing_summary = df_raw.groupby('ticker').apply(lambda x: x.isna().sum())
+
+print("Missing values count per company:")
+display(missing_summary)
+
+# Calculate the percentage of missing data to see the "health" of your dataset
+missing_percent = (df_raw.groupby('ticker').apply(lambda x: x.isna().mean()) * 100).round(2)
+
+print("\nPercentage of missing values (%) per company:")
+display(missing_percent)
+----------------------------------------
+# Create a new DataFrame excluding any company that has any missing values
+# We group by 'ticker' and filter out any group where ANY value is null
+df_clean_companies = df_raw.groupby('ticker').filter(lambda x: x.notna().all().all())
+
+# Verification
+print(f"Original number of companies: {df_raw['ticker'].nunique()}")
+print(f"Companies remaining: {df_clean_companies['ticker'].nunique()}")
+
+# Show which companies were kept
+print("Remaining companies:", df_clean_companies['ticker'].unique())
+----------------------------------------
+df_clean_companies.to_excel('companies_data_cleaned.xlsx', index=False)
+----------------------------------------
+print(df_clean_companies.columns)
+----------------------------------------
+import matplotlib.pyplot as plt
+
+# 1. Calculate lengths (char counts)
+# Using features_df or df_clean_companies (the ones that still have 'mda_text')
+text_lengths = df_clean_companies['mda_text'].str.len()
+
+# 2. Create the Box Plot
+plt.figure(figsize=(8, 6))
+plt.boxplot(text_lengths, vert=True, patch_artist=True, 
+            boxprops=dict(facecolor='lightblue', color='blue'),
+            medianprops=dict(color='red', linewidth=2))
+
+# 3. Add Labels and Title
+plt.title('Distribution of MD&A Text Lengths', fontsize=14)
+plt.ylabel('Number of Characters', fontsize=12)
+plt.xticks([1], ['MD&A (Item 2)']) # Label for the x-axis tick
+
+# Optional: Add grid for better readability
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+# 1. Create a filtered version with only actual text
+df_real_text = df_clean_companies[df_clean_companies['mda_text'].str.len() > 0].copy()
+
+# 2. Calculate lengths
+real_lengths = df_real_text['mda_text'].str.len()
+
+# 3. Plot with a horizontal line at your current 8,000 char limit
+plt.figure(figsize=(10, 6))
+plt.boxplot(real_lengths, vert=True, patch_artist=True, boxprops=dict(facecolor='lightgreen'))
+
+# Draw the 'OpenAI Truncation' line
+plt.axhline(y=8000, color='red', linestyle='--', label='Current 8k Limit')
+
+plt.title('MD&A Lengths (Excluding Empty Filings)')
+plt.ylabel('Characters')
+plt.legend()
+plt.show()
+
+print(f"Removed {len(df_clean_companies) - len(df_real_text)} empty filings.")
+print(real_lengths.describe())
+plt.show()
+
+# Print summary statistics for context
+print("Summary Statistics for Text Lengths:")
+print(text_lengths.describe())
+----------------------------------------
+# Count unique companies in the cleaned dataframe
+remaining_count = df_real_text['ticker'].nunique()
+remaining_tickers = df_real_text['ticker'].unique()
+
+print(f"--- Final Dataset Summary ---")
+print(f"Total Companies Remaining: {remaining_count}")
+print(f"Total Filings Remaining:   {len(df_real_text)}")
+print(f"Tickers: {', '.join(remaining_tickers)}")
+
+# Check if any company has very few filings left
+filings_per_company = df_real_text['ticker'].value_counts()
+print("\nFilings per company:")
+print(filings_per_company)
+----------------------------------------
+print(df_real_text.columns)
+df_real_text.to_excel('companies_data_real_text.xlsx', index=False)
+----------------------------------------
+from tqdm import tqdm
+import pandas as pd
+
+# 1. Create a working copy from your specific dataframe
+features_df = df_real_text.copy()
+
+sentiments = []
+
+print(f"Analyzing sentiment for {len(features_df)} filings across {features_df['ticker'].nunique()} companies...")
+
+# 2. Iterate through the flat 'mda_text' column
+# Since the structure is flat, we just need one loop.
+for text in tqdm(features_df['mda_text']):
+    
+    # Check if text exists and is long enough to be a valid MD&A
+    if isinstance(text, str) and len(text) > 200:
+        try:
+            # --- Call your LLM function ---
+            # Note: You might want to truncate text here if it's too long 
+            # e.g., analysis = get_openai_sentiment(text[:15000])
+            analysis = get_openai_sentiment(text)
+            
+            # Extract score (assuming your function returns a dict with 'score')
+            sentiments.append(analysis['score'])
+            
+        except Exception as e:
+            print(f"Error processing text: {e}")
+            sentiments.append(0.0) # Fallback for errors
+    else:
+        sentiments.append(0.0) # Neutral for empty/short texts
+
+# 3. Assign the new column
+features_df['sentiment_score'] = sentiments
+
+# 4. Create the final clean table by dropping the large text column
+# We keep Ticker, Date, Revenue, Net_Income, and the new Sentiment Score
+final_df = features_df.drop(columns=['mda_text'])
+
+print("Analysis Complete.")
+print(final_df.head())
+----------------------------------------
+# Assuming you defined your list earlier:
+tickers = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "LLY", "AVGO"]
+
+for ticker in tickers:
+    print(f"\nFetching filings for {ticker}...")
+    try:
+        company = Company(ticker)
+        filings = company.get_filings(form="10-Q")
+        
+        # Just print the first 2 rows to verify data exists without cluttering
+        print(filings.to_pandas().head(2)[['form', 'filingDate', 'accessionNumber']])
+        
+    except Exception as e:
+        print(f"❌ Could not fetch for {ticker}: {e}")
+----------------------------------------
+import yfinance as yf
+import pandas as pd
+
+# 1. Setup: Ensure dates are datetime objects
+features_df['date'] = pd.to_datetime(features_df['date'])
+
+# 2. Get the list of unique tickers and the date range
+unique_tickers = features_df['ticker'].unique().tolist()
+min_date = features_df['date'].min()
+max_date = features_df['date'].max() + pd.DateOffset(days=120)
+
+print(f"Downloading market data for {len(unique_tickers)} companies...")
+
+# 3. Download data for each ticker and store in a dictionary
+# This is safer than bulk download because it avoids MultiIndex confusion
+market_data_dict = {}
+for t in unique_tickers:
+    # Download with a buffer to ensure we have data 90 days out
+    df = yf.download(t, start=min_date, end=max_date, progress=False)
+    
+    # yfinance sometimes returns a MultiIndex column for 'Close' even for single tickers
+    # We flattening it to be safe
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.droplevel(1) 
+        
+    market_data_dict[t] = df
+
+# 4. Define the lookup function
+def calculate_next_quarter_return(row):
+    ticker = row['ticker']
+    filing_date = row['date']
+    
+    # Retrieve the specific dataframe for this company
+    if ticker not in market_data_dict or market_data_dict[ticker].empty:
+        return None
+        
+    prices = market_data_dict[ticker]
+    
+    # --- Logic A: Get Entry Price (Filing Date) ---
+    try:
+        # Try exact match
+        price_on_filing = prices.loc[filing_date.strftime('%Y-%m-%d')]['Close']
+    except KeyError:
+        # If weekend/holiday, take the NEXT available trading day
+        future_mask = prices.index > filing_date
+        if not future_mask.any(): return None
+        price_on_filing = prices.loc[future_mask].iloc[0]['Close']
+
+    # --- Logic B: Get Exit Price (90 Days Later) ---
+    exit_date = filing_date + pd.DateOffset(days=90)
+    
+    try:
+        # Try exact match
+        price_in_90_days = prices.loc[exit_date.strftime('%Y-%m-%d')]['Close']
+    except KeyError:
+        # If weekend/holiday, take the NEXT available trading day
+        future_mask = prices.index > exit_date
+        if not future_mask.any(): return None
+        price_in_90_days = prices.loc[future_mask].iloc[0]['Close']
+        
+    # --- Calculation ---
+    # Ensure we are working with floats (sometimes yfinance returns Series)
+    p_start = float(price_on_filing)
+    p_end = float(price_in_90_days)
+    
+    return (p_end - p_start) / p_start
+
+# 5. Apply the function
+print("Calculating returns...")
+features_df['next_quarter_return'] = features_df.apply(calculate_next_quarter_return, axis=1)
+
+# Drop rows where we couldn't calculate return (e.g. data missing or too recent)
+features_df.dropna(subset=['next_quarter_return'], inplace=True)
+
+print("Calculation Complete.")
+features_df.head()
+----------------------------------------
+# 1. CRITICAL: Sort by Ticker and Date first
+# This ensures that Quarter 1 is followed by Quarter 2 for the SAME company.
+features_df = features_df.sort_values(by=['ticker', 'date'])
+
+# 2. Apply calculations within each company group
+features_df['revenue_growth'] = features_df.groupby('ticker')['revenue'].pct_change()
+features_df['sentiment_change'] = features_df.groupby('ticker')['sentiment_score'].diff()
+
+# 3. Net Margin is a row-by-row calculation (safe to do without grouping)
+features_df['net_margin'] = features_df['net_income'] / features_df['revenue']
+
+# 4. Remove the first row of each company (which will be NaN due to diff/pct_change)
+features_df.dropna(inplace=True)
+
+print("Feature Engineering Complete.")
+print(features_df[['ticker', 'date', 'revenue_growth', 'sentiment_change']].head())
+----------------------------------------
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# Get list of unique companies present in the data
+unique_tickers = features_df['ticker'].unique()
+
+print(f"Generating plots for {len(unique_tickers)} companies...")
+
+for ticker in unique_tickers:
+    # 1. Filter data for the CURRENT company only
+    company_df = features_df[features_df['ticker'] == ticker].sort_values('date')
+    
+    # Skip if no data for this company (safety check)
+    if company_df.empty:
+        continue
+
+    # 2. Get the Market Data for this company
+    # (Assuming you have 'market_data_dict' from the previous step)
+    if ticker in market_data_dict:
+        price_data = market_data_dict[ticker]
+    else:
+        print(f"Warning: No market data found for {ticker}")
+        continue
+
+    # --- Plotting ---
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    # A. Plot Stock Price (Red Line)
+    color = 'tab:red'
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Stock Price ($)', color=color)
+    
+    # We plot the full price history for context, limited to the range of our data
+    min_date = company_df['date'].min()
+    max_date = company_df['date'].max()
+    
+    # Slice the price data to match the sentiment period
+    mask = (price_data.index >= min_date) & (price_data.index <= max_date)
+    subset_prices = price_data.loc[mask]
+    
+    ax1.plot(subset_prices.index, subset_prices['Close'], color=color, linewidth=2, label='Stock Price')
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    # B. Plot Sentiment (Blue Bars)
+    ax2 = ax1.twinx()
+    color = 'tab:blue'
+    ax2.set_ylabel('Sentiment Score', color=color)
+    
+    # Width=20 works well for daily charts, adjust if bars are too thin/thick
+    ax2.bar(company_df['date'], company_df['sentiment_score'], 
+            color=color, alpha=0.5, width=25, label='Sentiment Score', zorder=2)
+    
+    ax2.tick_params(axis='y', labelcolor=color)
+    
+    # Zero line for sentiment
+    ax2.axhline(0, color='black', lw=1, linestyle='--', alpha=0.5)
+
+    # C. Formatting
+    plt.title(f'{ticker}: Stock Price vs. MD&A Sentiment')
+    
+    # Optional: Format X-axis to show Years/Months clearly
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    plt.xticks(rotation=45)
+    
+    fig.tight_layout()
+    plt.show()
+----------------------------------------
+
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from scipy.stats import pearsonr
+
+# 1. Clean 'next_quarter_return'
+# Handles cases where a cell might be a scalar, a Series, or None
+def clean_val(val):
+    if isinstance(val, pd.Series):
+        return float(val.iloc[0]) if not val.empty else np.nan
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return np.nan
+
+# Apply the cleaning function
+features_df['next_quarter_return_clean'] = features_df['next_quarter_return'].apply(clean_val)
+
+# 2. Ensure sentiment is also clean float
+features_df['sentiment_score'] = pd.to_numeric(features_df['sentiment_score'], errors='coerce')
+
+# 3. Create the plotting dataframe (Drop NaNs)
+plot_data = features_df[['sentiment_score', 'next_quarter_return_clean']].dropna()
+
+print(f"Rows with valid X and Y: {len(plot_data)}")
+
+if len(plot_data) > 2: # Need at least 2 points for a line, preferably more
+    x = plot_data['sentiment_score']
+    y = plot_data['next_quarter_return_clean']
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Scatter plot
+    ax.scatter(x, y, alpha=0.6, color='tab:blue', s=80, edgecolors='w', label='Quarters')
+
+    # Calculate Trendline
+    z = np.polyfit(x, y, 1)
+    p = np.poly1d(z)
+    
+    # Calculate Statistics (Correlation and R-squared)
+    correlation, _ = pearsonr(x, y)
+    r_squared = correlation ** 2
+    
+    # Plot Trendline covering the full range
+    x_range = np.linspace(x.min(), x.max(), 100)
+    ax.plot(x_range, p(x_range), "r--", linewidth=2, 
+            label=f"Trend: y={z[0]:.2f}x + {z[1]:.2f}\n$R^2$ = {r_squared:.4f}")
+
+    # Labels and Title
+    ax.set_title(f'Sentiment vs. Return (n={len(plot_data)})', fontsize=14)
+    ax.set_xlabel('Sentiment Score (Positive/Negative)', fontsize=12)
+    ax.set_ylabel('Next Quarter Stock Return (Decimal)', fontsize=12)
+    
+    # Add a horizontal line at 0 return
+    ax.axhline(0, color='gray', linestyle=':', alpha=0.5)
+    
+    # Formatting
+    ax.legend(loc='upper left', frameon=True)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+
+    print(f"Correlation: {correlation:.4f}")
+
+else:
+    print("Check failed. Not enough valid data points to plot.")
+    # Debugging: show what the dirty data looks like if it failed
+    if not features_df['next_quarter_return'].empty:
+        print("Sample dirty value:", features_df['next_quarter_return'].iloc[0])
+        print("Type:", type(features_df['next_quarter_return'].iloc[0]))
+
+----------------------------------------
+# 1. Sort by Ticker and Date to ensure correct order
+features_df = features_df.sort_values(by=['ticker', 'date'])
+
+# 2. Calculate Sentiment Change safely (Grouped by Ticker)
+# This prevents the last quarter of Apple from affecting the first quarter of Amazon
+features_df['sentiment_change'] = features_df.groupby('ticker')['sentiment_score'].diff()
+
+# 3. Drop NaN values created by the diff() (First row of each company will be NaN)
+features_df.dropna(subset=['sentiment_change', 'revenue_growth', 'next_quarter_return'], inplace=True)
+
+print("Feature Engineering Complete. Added 'sentiment_change'.")
+print(features_df[['ticker', 'date', 'sentiment_score', 'sentiment_change']].head())
+----------------------------------------
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+
+# Updated Feature List
+features = ['sentiment_score', 'sentiment_change', 'revenue_growth', 'net_margin']
+target = 'next_quarter_return'
+
+tickers = features_df['ticker'].unique()
+company_models = {}
+
+print(f"Training models for {len(tickers)} companies using features: {features}\n")
+
+for ticker in tickers:
+    print(f"\n{'='*40}")
+    print(f"🏢 Processing: {ticker}")
+    
+    # --- A. Filter Data ---
+    df_company = features_df[features_df['ticker'] == ticker].sort_values('date').copy()
+    
+    # Check for minimum data points (Need at least 6-8 quarters for a split)
+    if len(df_company) < 8:
+        print(f"⚠️ Skipping {ticker}: Not enough data ({len(df_company)} rows)")
+        continue
+
+    # --- B. Clean & Prepare Data ---
+    X = df_company[features]
+    y = df_company[target]
+
+    # Helper to clean individual cells
+    def clean_val(val):
+        if isinstance(val, pd.Series):
+            val = val.iloc[0]
+        return pd.to_numeric(val, errors='coerce')
+
+    # Apply cleaning
+    X_clean = X.applymap(clean_val)
+    y_clean = y.apply(clean_val)
+    
+    # Combine to drop NaNs
+    combined = pd.concat([X_clean, y_clean], axis=1).dropna()
+    
+    if combined.empty:
+        print("⚠️ No valid data after cleaning.")
+        continue
+
+    X_final = combined[features]
+    y_final = combined[target]
+
+    # --- C. Time-Based Split (80/20) ---
+    train_size = int(len(X_final) * 0.8)
+    X_train, X_test = X_final.iloc[:train_size], X_final.iloc[train_size:]
+    y_train, y_test = y_final.iloc[:train_size], y_final.iloc[train_size:]
+
+    if len(X_test) == 0:
+        print("⚠️ Not enough data for testing.")
+        continue
+
+    # --- D. Train Model ---
+    model = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5)
+    model.fit(X_train, y_train)
+    company_models[ticker] = model
+
+    # --- E. Evaluate ---
+    predictions = model.predict(X_test)
+    mse = mean_squared_error(y_test, predictions)
+    print(f'✅ MSE: {mse:.6f}')
+
+    # --- F. Feature Importance Plot ---
+    importances = model.feature_importances_
+    fi_df = pd.DataFrame({'feature': features, 'importance': importances})
+    fi_df = fi_df.sort_values('importance', ascending=False)
+    
+    print(f"Top Feature: {fi_df.iloc[0]['feature']} ({fi_df.iloc[0]['importance']:.2f})")
+
+    plt.figure(figsize=(8, 4))
+    bars = plt.bar(fi_df['feature'], fi_df['importance'], color='teal', alpha=0.7)
+    plt.title(f'Feature Importance: {ticker}')
+    plt.xlabel('Features')
+    plt.ylabel('Importance')
+    plt.grid(axis='y', linestyle='--', alpha=0.3)
+    
+    # Label bars
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height,
+                 f'{height:.2f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.show()
+----------------------------------------
+# The index of X_test contains the filing dates for the quarters being predicted
+print("The model is predicting returns for the quarters following these filing dates:")
+print(X_test.index)
+
+# To see the actual predicted values vs truth
+y_pred = model.predict(X_test)
+comparison = pd.DataFrame({
+    'Filing Date': X_test.index,
+    'Actual Next Q Return': y_test.values,
+    'Predicted Next Q Return': y_pred
+})
+display(comparison)
+----------------------------------------
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+# Loop through every company we have a model for
+for ticker, model in company_models.items():
+    
+    print(f"\n{'='*50}")
+    print(f"📈 EVALUATION REPORT: {ticker}")
+    print(f"{'='*50}")
+    
+    # --- 1. Reconstruct the Data for this Company ---
+    # We must redo the filtering to get the correct Train/Test sets for *this* ticker
+    df_company = features_df[features_df['ticker'] == ticker].sort_values('date').copy()
+    
+    # CRITICAL: Set date as index so the plots show dates, not row numbers
+    df_company.set_index('date', inplace=True)
+    
+    # Define features and target
+    features = ['sentiment_score', 'sentiment_change', 'revenue_growth', 'net_margin']
+    target = 'next_quarter_return'
+
+    # Cleaning helper (same as before)
+    def clean_val(val):
+        if isinstance(val, pd.Series): val = val.iloc[0]
+        return pd.to_numeric(val, errors='coerce')
+
+    X = df_company[features].applymap(clean_val)
+    y = df_company[target].apply(clean_val)
+    
+    # Drop NaNs
+    combined = pd.concat([X, y], axis=1).dropna()
+    
+    if combined.empty or len(combined) < 8:
+        print(f"Skipping {ticker} (insufficient data)")
+        continue
+        
+    X_final = combined[features]
+    y_final = combined[target]
+
+    # Time-based Split
+    train_size = int(len(X_final) * 0.8)
+    X_train, X_test = X_final.iloc[:train_size], X_final.iloc[train_size:]
+    y_train, y_test = y_final.iloc[:train_size], y_final.iloc[train_size:]
+    
+    if X_test.empty:
+        print(f"Skipping {ticker} (no test data)")
+        continue
+
+    # --- 2. Make Predictions ---
+    y_pred = model.predict(X_test)
+    
+    # Create comparison table
+    comparison = pd.DataFrame({
+        'Actual Return': y_test,
+        'Predicted Return': y_pred,
+        'Difference': y_test - y_pred
+    })
+    
+    print("Most Recent Predictions:")
+    display(comparison.tail(3))
+
+    # --- 3. Plotting (Your Code Adapted) ---
+    
+    # Prepare full timeline
+    y_actual_full = pd.concat([y_train, y_test]).sort_index()
+    y_pred_series = pd.Series(y_pred, index=X_test.index)
+    
+    plt.figure(figsize=(12, 6))
+
+    # Plot Actual Returns (Full History)
+    plt.plot(y_actual_full.index, y_actual_full, label='Actual Returns', 
+             color='gray', alpha=0.4, linewidth=1.5, linestyle='--')
+
+    # Highlight Training Data
+    plt.scatter(y_train.index, y_train, color='forestgreen', label='Training Data', s=40, alpha=0.6)
+
+    # Highlight Test Data (Actual)
+    plt.scatter(y_test.index, y_test, color='royalblue', label='Test Data (Actual)', s=60, edgecolors='black')
+
+    # Plot Model Predictions
+    plt.plot(y_pred_series.index, y_pred_series, color='crimson', label='Model Prediction', 
+             marker='x', markersize=10, linewidth=2, linestyle='None') # 'None' prevents connecting predictions with lines
+
+    # Visual cues for the split
+    if not X_test.empty:
+        split_date = X_test.index.min()
+        plt.axvline(x=split_date, color='black', linestyle=':', alpha=0.5)
+        plt.text(split_date, plt.ylim()[1], ' Prediction Start ->', verticalalignment='top', fontsize=10, fontweight='bold')
+        
+        # Shade the testing zone
+        plt.axvspan(split_date, y_actual_full.index.max(), color='yellow', alpha=0.1, label='Testing Zone')
+
+    # Formatting
+    plt.title(f'{ticker}: Model Predictions vs. Real Returns', fontsize=14)
+    plt.xlabel('Filing Date')
+    plt.ylabel('Next Quarter Return (Decimal)')
+    plt.axhline(0, color='black', lw=1, alpha=0.3)
+    plt.legend(loc='best')
+    plt.grid(True, alpha=0.2)
+    plt.tight_layout()
+    plt.show()
+
+
+----------------------------------------
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from sklearn.ensemble import RandomForestRegressor
+
+# --- Configuration ---
+start_year = 2021
+initial_capital = 100.0
+top_n = 3
+lookahead_days = 90  # The duration of your trade target
+
+# 1. Prepare Data
+features_df['date'] = pd.to_datetime(features_df['date'])
+features_df['quarter'] = features_df['date'].dt.to_period('Q')
+features_df = features_df.sort_values('date')
+
+all_quarters = sorted(features_df['quarter'].unique())
+trading_quarters = [q for q in all_quarters if q.year >= start_year]
+
+portfolio_history = []
+portfolio_value = initial_capital
+
+print(f"Starting Robust Walk-Forward (Purging Overlaps)...")
+
+for current_q in trading_quarters:
+    
+    # --- 1. Identify the Prediction Date ---
+    # We need to know WHEN we are making this decision. 
+    # Usually, it's the earliest filing date in the current quarter.
+    test_df = features_df[features_df['quarter'] == current_q].copy()
+    if test_df.empty: continue
+    
+    # The moment we start trading this quarter
+    decision_date = test_df['date'].min()
+    
+    # --- 2. Define Training Set with SAFETY GAP ---
+    # Standard split: everything before this quarter
+    potential_train_df = features_df[features_df['quarter'] < current_q].copy()
+    
+    # CRITICAL FIX: Purge any training rows where the trade hasn't finished yet
+    # We only keep rows where (Filing_Date + 90 Days) < Decision_Date
+    valid_mask = (potential_train_df['date'] + pd.Timedelta(days=lookahead_days)) < decision_date
+    train_df = potential_train_df[valid_mask].copy()
+    
+    # Debug: Check how many rows were dropped due to leakage
+    # dropped_count = len(potential_train_df) - len(train_df)
+    # if dropped_count > 0: print(f"[{current_q}] Purged {dropped_count} overlapping rows to prevent leakage.")
+
+    if train_df.empty or len(train_df) < 10: 
+        print(f"Skipping {current_q}: Not enough historical closed trades.")
+        continue
+
+    # --- 3. Training & Prediction (Standard) ---
+    predictions = []
+    tickers_in_quarter = test_df['ticker'].unique()
+    
+    # Define features
+    features = ['sentiment_score', 'sentiment_change', 'revenue_growth', 'net_margin']
+    target = 'next_quarter_return'
+
+    # Train one global model or per-ticker model? 
+    # Global is often more stable for small datasets, but let's stick to your per-ticker logic 
+    # or better: use a Global Model if per-ticker data is too sparse after purging.
+    
+    # Let's use a simple Global Model here for robustness on small data
+    # (Mixing all companies helps the model learn general sentiment patterns)
+    X_train_all = train_df[features].applymap(lambda x: pd.to_numeric(x, errors='coerce')).fillna(0)
+    y_train_all = train_df[target].apply(lambda x: pd.to_numeric(x, errors='coerce')).fillna(0)
+    
+    model = RandomForestRegressor(n_estimators=50, max_depth=3, random_state=42)
+    model.fit(X_train_all, y_train_all)
+    
+    for ticker in tickers_in_quarter:
+        ticker_test = test_df[test_df['ticker'] == ticker]
+        if ticker_test.empty: continue
+        
+        X_test = ticker_test[features].applymap(lambda x: pd.to_numeric(x, errors='coerce')).fillna(0)
+        
+        # Predict
+        pred_return = model.predict(X_test)[0]
+        actual_return = ticker_test[target].iloc[0]
+        
+        predictions.append({
+            'ticker': ticker,
+            'pred_return': pred_return,
+            'actual_return': actual_return
+        })
+
+    # --- 4. Portfolio Construction ---
+    if not predictions:
+        period_return = 0.0
+        selection = "CASH"
+    else:
+        pred_df = pd.DataFrame(predictions)
+        # Select Top N with positive signal
+        top_picks = pred_df[pred_df['pred_return'] > 0.0].nlargest(top_n, 'pred_return')
+        
+        if top_picks.empty:
+            period_return = 0.0
+            selection = "CASH (Bearish)"
+        else:
+            period_return = top_picks['actual_return'].mean()
+            selection = ", ".join(top_picks['ticker'].tolist())
+
+    portfolio_value = portfolio_value * (1 + period_return)
+    
+    q_end_date = current_q.end_time.date()
+    portfolio_history.append({
+        'date': pd.to_datetime(q_end_date),
+        'portfolio_value': portfolio_value,
+        'selection': selection,
+        'return': period_return
+    })
+
+# --- Plotting ---
+df_perf = pd.DataFrame(portfolio_history)
+if not df_perf.empty:
+    plt.figure(figsize=(12, 6))
+    plt.plot(df_perf['date'], df_perf['portfolio_value'], marker='o', label='Robust AI Strategy')
+    plt.title("Backtest Performance (Leakage Removed)")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.show()
+    
+    print(df_perf[['date', 'selection', 'portfolio_value']].tail())
+else:
+    print("No trades made.")
+----------------------------------------
+print(df_perf['portfolio_value'])
+----------------------------------------

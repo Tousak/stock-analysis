@@ -30,21 +30,28 @@ EDGAR_IDENTITY = "Jan Tous honza.tous@seznam.com"
 DATA_DIR = "data/fetched"
 BLACKLIST_PATH = os.path.join(DATA_DIR, "blacklist.txt")
 RAW_FILINGS_PATH = os.path.join(DATA_DIR, "raw_filings.xlsx")
-PROCESSED_FILINGS_PATH = os.path.join(DATA_DIR, "processed_filings.xlsx")
-FEATURES_PATH = os.path.join(DATA_DIR, "features.xlsx")
-PREDICTIONS_PATH = os.path.join(DATA_DIR, "predictions.xlsx")
-BACKTEST_RESULTS_PATH = os.path.join(DATA_DIR, "backtest_results.xlsx")
-LATEST_PREDICTIONS_PATH = os.path.join(DATA_DIR, "latest_predictions.xlsx")
+
+def get_data_paths(nlp_method: str = "openai") -> dict:
+    """Returns a dictionary of dynamic file paths based on the chosen NLP method."""
+    suffix = f"_{nlp_method}.xlsx"
+    return {
+        "PROCESSED_FILINGS_PATH": os.path.join(DATA_DIR, f"processed_filings{suffix}"),
+        "FEATURES_PATH": os.path.join(DATA_DIR, f"features{suffix}"),
+        "PREDICTIONS_PATH": os.path.join(DATA_DIR, f"predictions{suffix}"),
+        "BACKTEST_RESULTS_PATH": os.path.join(DATA_DIR, f"backtest_results{suffix}"),
+        "LATEST_PREDICTIONS_PATH": os.path.join(DATA_DIR, f"latest_predictions{suffix}"),
+    }
 
 # --- Processor Settings ---
 # Regex pattern for MD&A extraction (Item 2 to Item 3)
 MDNA_REGEX_PATTERN = r'(Item\s+2[.:]?\s+Management.*?)(?=Item\s+3[.:]?)'
 MDNA_MIN_LENGTH = 1000 # Minimum characters for MD&A to be considered valid
 
-# --- Model Settings (RandomForestRegressor) ---
-MODEL_N_ESTIMATORS = 100
-MODEL_MAX_DEPTH = 5
-MODEL_RANDOM_STATE = 42
+# --- Model Settings (XGBoost) ---
+XGB_N_ESTIMATORS = 100
+XGB_MAX_DEPTH = 3
+XGB_LEARNING_RATE = 0.05
+XGB_RANDOM_STATE = 42
 
 # --- Backtester Settings ---
 INITIAL_CAPITAL = 100.0 # Starting capital for portfolio simulation

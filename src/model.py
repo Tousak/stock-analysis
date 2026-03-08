@@ -1,15 +1,38 @@
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
+from xgboost import XGBRegressor
 import os
 from tqdm.auto import tqdm
 from datetime import timedelta
+import optuna
+from sklearn.metrics import mean_squared_error
 
 from src.config import (
-    MODEL_N_ESTIMATORS, MODEL_MAX_DEPTH, MODEL_RANDOM_STATE, 
-    FEATURES_PATH, PREDICTIONS_PATH, DATA_DIR, LATEST_PREDICTIONS_PATH
+    XGB_N_ESTIMATORS, XGB_MAX_DEPTH, XGB_LEARNING_RATE, XGB_RANDOM_STATE, DATA_DIR
 )
 
-def run_walk_forward_predictions(features_df: pd.DataFrame, start_year: int = 2021, lookahead_days: int = 90) -> pd.DataFrame:
+def optimize_xgboost_params(X_train: pd.DataFrame, y_train: pd.DataFrame, X_valid: pd.DataFrame, y_valid: pd.DataFrame, n_trials: int = 20) -> dict:
+    """Uses Optuna to find the best XGBoost hyperparameters for the given split (KISS implementation)."""
+    def objective(trial):
+        params = {
+            'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+            'max_depth': trial.suggest_int('max_depth', 2, 7),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.2, log=True),
+            'random_state': XGB_RANDOM_STATE
+        }
+        model = XGBRegressor(**params)
+        model.fit(X_train, y_train)
+        preds = model.predict(X_valid)
+        mse = mean_squared_error(y_valid, preds)
+        return mse
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING) 
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=n_trials)
+    return study.best_params
+
+def run_walk_forward_predictions(features_df: pd.DataFrame, output_path: str, start_year: int = 2021, lookahead_days: int = 90, 
+                                 n_estimators: int = XGB_N_ESTIMATORS, max_depth: int = XGB_MAX_DEPTH, 
+                                 learning_rate: float = XGB_LEARNING_RATE, use_optuna: bool = False) -> pd.DataFrame:
     """
     Performs a robust walk-forward validation with data purging to prevent look-ahead bias.
     Trains one global model at each time step.
@@ -55,8 +78,18 @@ def run_walk_forward_predictions(features_df: pd.DataFrame, start_year: int = 20
         y_train = train_df[target]
         X_test = test_df[features]
 
-        # Train a global model on all available past data
-        model = RandomForestRegressor(n_estimators=MODEL_N_ESTIMATORS, max_depth=MODEL_MAX_DEPTH, random_state=MODEL_RANDOM_STATE)
+        if use_optuna:
+            # Drop NaNs from the proxy validation set (test_df) before tuning
+            tune_val_df = test_df.dropna(subset=[target]).copy()
+            if not tune_val_df.empty:
+                best_params = optimize_xgboost_params(X_train, y_train, tune_val_df[features], tune_val_df[target])
+                model = XGBRegressor(**best_params, random_state=XGB_RANDOM_STATE)
+                print(f"[{current_q}] Tuned: {best_params}")
+            else:
+                model = XGBRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=learning_rate, random_state=XGB_RANDOM_STATE)
+        else:
+            model = XGBRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=learning_rate, random_state=XGB_RANDOM_STATE)
+
         model.fit(X_train, y_train)
         
         # Generate predictions for the current quarter
@@ -73,13 +106,15 @@ def run_walk_forward_predictions(features_df: pd.DataFrame, start_year: int = 20
     output_df = predictions_df[['ticker', 'filing_date', 'quarter', 'next_quarter_return', 'predicted_return']].copy()
     
     os.makedirs(DATA_DIR, exist_ok=True)
-    output_df.to_excel(PREDICTIONS_PATH, index=False)
-    print(f"Walk-forward predictions saved to {PREDICTIONS_PATH}")
+    output_df.to_excel(output_path, index=False)
+    print(f"Walk-forward predictions saved to {output_path}")
 
     return output_df
 
 
-def generate_next_quarter_prediction(features_df: pd.DataFrame) -> pd.DataFrame:
+def generate_next_quarter_prediction(features_df: pd.DataFrame, output_path: str, n_estimators: int = XGB_N_ESTIMATORS, 
+                                     max_depth: int = XGB_MAX_DEPTH, learning_rate: float = XGB_LEARNING_RATE, 
+                                     use_optuna: bool = False) -> pd.DataFrame:
     """
     Generates a single forward-looking prediction for the next unseen quarter
     for each stock, using a model trained on that stock's historical data.
@@ -129,8 +164,17 @@ def generate_next_quarter_prediction(features_df: pd.DataFrame) -> pd.DataFrame:
                 mean_val = X_train[feature].mean()
                 X_predict[feature] = X_predict[feature].fillna(mean_val)
 
-        # Train a model specifically for this ticker
-        model = RandomForestRegressor(n_estimators=MODEL_N_ESTIMATORS, max_depth=MODEL_MAX_DEPTH, random_state=MODEL_RANDOM_STATE)
+        if use_optuna and len(train_data_ticker) >= 10:
+            # Split train data 80/20 for tuning
+            split_idx = int(len(train_data_ticker) * 0.8)
+            X_tune_train, X_tune_val = X_train.iloc[:split_idx], X_train.iloc[split_idx:]
+            y_tune_train, y_tune_val = y_train.iloc[:split_idx], y_train.iloc[split_idx:]
+            
+            best_params = optimize_xgboost_params(X_tune_train, y_tune_train, X_tune_val, y_tune_val)
+            model = XGBRegressor(**best_params, random_state=XGB_RANDOM_STATE)
+        else:
+            model = XGBRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=learning_rate, random_state=XGB_RANDOM_STATE)
+            
         model.fit(X_train, y_train)
         
         # Generate prediction for this ticker's next quarter
@@ -145,17 +189,17 @@ def generate_next_quarter_prediction(features_df: pd.DataFrame) -> pd.DataFrame:
     output_df = output_df[['ticker', 'filing_date', 'quarter', 'predicted_return']].copy()
     
     os.makedirs(DATA_DIR, exist_ok=True)
-    output_df.to_excel(LATEST_PREDICTIONS_PATH, index=False)
-    print(f"Latest next quarter predictions saved to {LATEST_PREDICTIONS_PATH}")
+    output_df.to_excel(output_path, index=False)
+    print(f"Latest next quarter predictions saved to {output_path}")
 
     return output_df
 
 if __name__ == "__main__":
     print("Running model.py example (Robust Walk-Forward)...")
     try:
-        features_data = pd.read_excel(FEATURES_PATH)
-        run_walk_forward_predictions(features_data.copy())
+        features_data = pd.read_excel("data/fetched/features_finbert.xlsx")
+        run_walk_forward_predictions(features_data.copy(), output_path="data/fetched/predictions_finbert.xlsx")
     except FileNotFoundError:
-        print(f"Error: {FEATURES_PATH} not found. Please run --engineer first.")
+        print("Error: Features file not found. Please run --engineer first.")
     except Exception as e:
         print(f"An error occurred during the example run: {e}")

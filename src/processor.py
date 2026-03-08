@@ -2,8 +2,16 @@ import json
 import pandas as pd
 from tqdm.auto import tqdm
 import openai
+from transformers import pipeline
 
 from src.config import client
+
+# Initialize the FinBERT pipeline globally so it's only loaded once when the module imports.
+try:
+    finbert_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+except Exception as e:
+    finbert_pipeline = None
+    print(f"Warning: Could not load FinBERT - {e}")
 
 def get_sentiment_openai(mda_text: str, model: str = "gpt-4o-mini") -> dict:
     """
@@ -52,16 +60,64 @@ def get_sentiment_openai(mda_text: str, model: str = "gpt-4o-mini") -> dict:
         print(f"An unexpected error occurred during sentiment analysis: {e}")
         return {"score": 0.0, "justification": f"Error: An unexpected error occurred - {e}"}
 
-def process_filings_for_sentiment(filings_df: pd.DataFrame) -> pd.DataFrame:
+def get_sentiment_finbert(mda_text: str) -> dict:
+    """
+    Analyzes sentiment using the local HuggingFace ProsusAI/finbert model.
+    Chunks the text to respect the 512 token limit and averages the score.
+    Returns +1.0 for positive, -1.0 for negative, 0.0 for neutral.
+    """
+    if not mda_text or not isinstance(mda_text, str) or len(mda_text) < 50:
+        return {"score": 0.0, "justification": "No valid MD&A text provided."}
+    
+    if finbert_pipeline is None:
+        return {"score": 0.0, "justification": "FinBERT model failed to load."}
+
+    # KISS chunking: Split by roughly 400 words to stay under 512 tokens
+    words = mda_text.split()
+    chunk_size = 400
+    chunks = [' '.join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)]
+    
+    total_score = 0.0
+    valid_chunks = 0
+    
+    for chunk in chunks:
+        # Pipeline returns [{'label': 'positive', 'score': 0.92}]
+        try:
+            result = finbert_pipeline(chunk)[0]
+            label = result['label']
+            confidence = result['score'] # How confident it is in the label
+            
+            if label == 'positive':
+                total_score += confidence
+            elif label == 'negative':
+                total_score -= confidence
+            # neutral adds 0 to the score
+            valid_chunks += 1
+        except:
+            continue
+            
+    if valid_chunks == 0:
+        return {"score": 0.0, "justification": "Failed to process any text chunks."}
+        
+    avg_score = total_score / valid_chunks
+    return {"score": avg_score, "justification": f"Average FinBERT score over {valid_chunks} chunks."}
+
+
+def process_filings_for_sentiment(filings_df: pd.DataFrame, nlp_method: str = "finbert") -> pd.DataFrame:
     """
     Processes a DataFrame of raw filings to analyze the sentiment of the 'mda_text' column.
+    Allows selecting between 'finbert' (local, leak-free) and 'openai'.
     """
     if 'mda_text' not in filings_df.columns:
         raise ValueError("Input DataFrame must contain an 'mda_text' column.")
 
-    print("Analyzing sentiment for new filings...")
-    tqdm.pandas(desc="Analyzing Sentiment")
-    sentiment_results = filings_df['mda_text'].progress_apply(get_sentiment_openai)
+    print(f"Analyzing sentiment for new filings using {nlp_method}...")
+    tqdm.pandas(desc=f"Analyzing Sentiment ({nlp_method})")
+    
+    if nlp_method == "openai":
+        sentiment_results = filings_df['mda_text'].progress_apply(get_sentiment_openai)
+    else:
+        sentiment_results = filings_df['mda_text'].progress_apply(get_sentiment_finbert)
     
     filings_df['sentiment_score'] = sentiment_results.apply(lambda x: x.get('score', 0.0))
     filings_df['sentiment_justification'] = sentiment_results.apply(lambda x: x.get('justification', ''))

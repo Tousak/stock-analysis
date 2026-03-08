@@ -4,7 +4,7 @@ import numpy as np
 import os
 from tqdm.auto import tqdm
 
-from src.config import FEATURES_PATH, DATA_DIR
+from src.config import DATA_DIR
 from src.data_loader import fetch_stock_prices
 
 def calculate_financial_growth(df: pd.DataFrame) -> pd.DataFrame:
@@ -58,7 +58,7 @@ def calculate_next_quarter_return(filings_df: pd.DataFrame, market_data_df: pd.D
     filings_df['next_quarter_return'] = returns
     return filings_df
 
-def engineer_features(processed_filings_df: pd.DataFrame) -> pd.DataFrame:
+def engineer_features(processed_filings_df: pd.DataFrame, output_path: str) -> pd.DataFrame:
     """
     Orchestrates feature engineering, with differentiated cleaning for training and prediction data.
     Aggressively cleans historical data for model training.
@@ -161,7 +161,7 @@ def engineer_features(processed_filings_df: pd.DataFrame) -> pd.DataFrame:
         print("Warning: Final DataFrame is empty after column selection.")
     else:
         os.makedirs(DATA_DIR, exist_ok=True)
-        final_features_df.to_excel(FEATURES_PATH, index=False)
-        print(f"Engineered features saved to {FEATURES_PATH}")
+        final_features_df.to_excel(output_path, index=False)
+        print(f"Engineered features saved to {output_path}")
     
     return final_features_df

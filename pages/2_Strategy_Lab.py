@@ -5,7 +5,7 @@ import yfinance as yf
 import os
 
 # Import pipeline functions and config
-from src.config import FEATURES_PATH, PREDICTIONS_PATH, BACKTEST_RESULTS_PATH, INITIAL_CAPITAL
+from src.config import INITIAL_CAPITAL, get_data_paths
 from src.model import run_walk_forward_predictions
 from src.backtester import simulate_portfolio
 
@@ -37,8 +37,22 @@ def calculate_max_drawdown(portfolio_values):
 # --- Sidebar for Inputs ---
 st.sidebar.header("Simulation Parameters")
 initial_capital_input = st.sidebar.number_input("Initial Capital ($)", min_value=100, value=int(INITIAL_CAPITAL), step=100)
-
 start_year_input = st.sidebar.number_input("Backtest Start Year", min_value=2020, max_value=2025, value=2021, step=1)
+
+st.sidebar.header("XGBoost Settings")
+use_optuna_input = st.sidebar.checkbox("Use Optuna Auto-Tuning (Slower)", value=False)
+max_depth_input = st.sidebar.number_input("Max Depth", min_value=1, max_value=10, value=3, step=1, disabled=use_optuna_input)
+learning_rate_input = st.sidebar.number_input("Learning Rate", min_value=0.01, max_value=0.5, value=0.05, step=0.01, disabled=use_optuna_input)
+n_estimators_input = st.sidebar.number_input("Number of Estimators", min_value=10, max_value=500, value=100, step=10, disabled=use_optuna_input)
+
+st.sidebar.header("Data Source")
+nlp_source = st.sidebar.radio("Select NLP Pipeline Data", ["Local FinBERT (Leak-Free)", "OpenAI GPT-4o-mini"])
+# Determine method string to get correct paths
+nlp_method = "finbert" if "FinBERT" in nlp_source else "openai"
+paths = get_data_paths(nlp_method)
+FEATURES_PATH = paths["FEATURES_PATH"]
+PREDICTIONS_PATH = paths["PREDICTIONS_PATH"]
+BACKTEST_RESULTS_PATH = paths["BACKTEST_RESULTS_PATH"]
 
 # --- Main Page ---
 if st.sidebar.button("Run New Simulation", use_container_width=True):
@@ -52,11 +66,13 @@ if st.sidebar.button("Run New Simulation", use_container_width=True):
             
             # Run model training (walk-forward prediction)
             # We pass the start year to the model training as well to align data
-            run_walk_forward_predictions(features_df, start_year=start_year_input)
+            run_walk_forward_predictions(features_df, output_path=PREDICTIONS_PATH, start_year=start_year_input, 
+                                         n_estimators=n_estimators_input, max_depth=max_depth_input,
+                                         learning_rate=learning_rate_input, use_optuna=use_optuna_input)
             
             # Run backtest with UI parameters
             predictions_df = pd.read_excel(PREDICTIONS_PATH)
-            simulate_portfolio(predictions_df, initial_capital=initial_capital_input, start_year=start_year_input)
+            simulate_portfolio(predictions_df, output_path=BACKTEST_RESULTS_PATH, initial_capital=initial_capital_input, start_year=start_year_input)
         
         st.success("Simulation complete!")
 
