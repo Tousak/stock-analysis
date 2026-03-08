@@ -44,6 +44,7 @@ use_optuna_input = st.sidebar.checkbox("Use Optuna Auto-Tuning (Slower)", value=
 max_depth_input = st.sidebar.number_input("Max Depth", min_value=1, max_value=10, value=3, step=1, disabled=use_optuna_input)
 learning_rate_input = st.sidebar.number_input("Learning Rate", min_value=0.01, max_value=0.5, value=0.05, step=0.01, disabled=use_optuna_input)
 n_estimators_input = st.sidebar.number_input("Number of Estimators", min_value=10, max_value=500, value=100, step=10, disabled=use_optuna_input)
+use_triplet_input = st.sidebar.checkbox("Use Triplet Features (Pos/Neg/Neu)", value=False, help="Uses raw FinBERT probabilities instead of a single scalar score. Best for larger datasets.")
 
 st.sidebar.header("Data Source")
 nlp_source = st.sidebar.radio("Select NLP Pipeline Data", ["Local FinBERT (Leak-Free)", "OpenAI GPT-4o-mini"])
@@ -68,7 +69,8 @@ if st.sidebar.button("Run New Simulation", use_container_width=True):
             # We pass the start year to the model training as well to align data
             run_walk_forward_predictions(features_df, output_path=PREDICTIONS_PATH, start_year=start_year_input, 
                                          n_estimators=n_estimators_input, max_depth=max_depth_input,
-                                         learning_rate=learning_rate_input, use_optuna=use_optuna_input)
+                                         learning_rate=learning_rate_input, use_optuna=use_optuna_input,
+                                         use_triplet=use_triplet_input)
             
             # Run backtest with UI parameters
             predictions_df = pd.read_excel(PREDICTIONS_PATH)

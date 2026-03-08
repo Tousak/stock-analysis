@@ -32,7 +32,8 @@ def optimize_xgboost_params(X_train: pd.DataFrame, y_train: pd.DataFrame, X_vali
 
 def run_walk_forward_predictions(features_df: pd.DataFrame, output_path: str, start_year: int = 2021, lookahead_days: int = 90, 
                                  n_estimators: int = XGB_N_ESTIMATORS, max_depth: int = XGB_MAX_DEPTH, 
-                                 learning_rate: float = XGB_LEARNING_RATE, use_optuna: bool = False) -> pd.DataFrame:
+                                 learning_rate: float = XGB_LEARNING_RATE, use_optuna: bool = False,
+                                 use_triplet: bool = False) -> pd.DataFrame:
     """
     Performs a robust walk-forward validation with data purging to prevent look-ahead bias.
     Trains one global model at each time step.
@@ -71,7 +72,15 @@ def run_walk_forward_predictions(features_df: pd.DataFrame, output_path: str, st
             continue
 
         # --- 3. Training & Prediction ---
-        features = ['sentiment_score', 'sentiment_change', 'revenue_growth', 'net_margin']
+        if use_triplet:
+            features = [
+                'sentiment_pos', 'sentiment_neg', 'sentiment_neu',
+                'sentiment_pos_change', 'sentiment_neg_change', 'sentiment_neu_change',
+                'revenue_growth', 'net_margin'
+            ]
+        else:
+            features = ['sentiment_score', 'sentiment_change', 'revenue_growth', 'net_margin']
+            
         target = 'next_quarter_return'
 
         X_train = train_df[features]
@@ -79,12 +88,17 @@ def run_walk_forward_predictions(features_df: pd.DataFrame, output_path: str, st
         X_test = test_df[features]
 
         if use_optuna:
-            # Drop NaNs from the proxy validation set (test_df) before tuning
-            tune_val_df = test_df.dropna(subset=[target]).copy()
-            if not tune_val_df.empty:
-                best_params = optimize_xgboost_params(X_train, y_train, tune_val_df[features], tune_val_df[target])
+            # --- Fix: Avoid Leakage ---
+            # Use only the training data to tune hyperparameters. 
+            # We split the training data 80/20 (chronological) to create a proxy validation set.
+            split_idx = int(len(X_train) * 0.8)
+            if split_idx >= 5: # Ensure we have enough data to split
+                X_tune_train, X_tune_val = X_train.iloc[:split_idx], X_train.iloc[split_idx:]
+                y_tune_train, y_tune_val = y_train.iloc[:split_idx], y_train.iloc[split_idx:]
+                
+                best_params = optimize_xgboost_params(X_tune_train, y_tune_train, X_tune_val, y_tune_val)
                 model = XGBRegressor(**best_params, random_state=XGB_RANDOM_STATE)
-                print(f"[{current_q}] Tuned: {best_params}")
+                # print(f"[{current_q}] Tuned (Leak-free): {best_params}")
             else:
                 model = XGBRegressor(n_estimators=n_estimators, max_depth=max_depth, learning_rate=learning_rate, random_state=XGB_RANDOM_STATE)
         else:
@@ -114,7 +128,7 @@ def run_walk_forward_predictions(features_df: pd.DataFrame, output_path: str, st
 
 def generate_next_quarter_prediction(features_df: pd.DataFrame, output_path: str, n_estimators: int = XGB_N_ESTIMATORS, 
                                      max_depth: int = XGB_MAX_DEPTH, learning_rate: float = XGB_LEARNING_RATE, 
-                                     use_optuna: bool = False) -> pd.DataFrame:
+                                     use_optuna: bool = False, use_triplet: bool = False) -> pd.DataFrame:
     """
     Generates a single forward-looking prediction for the next unseen quarter
     for each stock, using a model trained on that stock's historical data.
@@ -129,7 +143,16 @@ def generate_next_quarter_prediction(features_df: pd.DataFrame, output_path: str
     df = df.sort_values('filing_date')
     
     all_latest_predictions = []
-    features = ['sentiment_score', 'sentiment_change', 'revenue_growth', 'net_margin']
+    
+    if use_triplet:
+        features = [
+            'sentiment_pos', 'sentiment_neg', 'sentiment_neu',
+            'sentiment_pos_change', 'sentiment_neg_change', 'sentiment_neu_change',
+            'revenue_growth', 'net_margin'
+        ]
+    else:
+        features = ['sentiment_score', 'sentiment_change', 'revenue_growth', 'net_margin']
+        
     target = 'next_quarter_return'
 
     unique_tickers = df['ticker'].unique()
@@ -139,19 +162,18 @@ def generate_next_quarter_prediction(features_df: pd.DataFrame, output_path: str
         # Data where 'next_quarter_return' is known (for training)
         train_data_ticker = ticker_df.dropna(subset=['next_quarter_return']).copy()
         
-        # Data for which 'next_quarter_return' is not known (for prediction)
-        predict_data_ticker = ticker_df[ticker_df['next_quarter_return'].isna()].copy()
+        # Data for which we want a forward-looking prediction: the absolute latest record for this ticker
+        predict_data_ticker = ticker_df.sort_values('filing_date', ascending=False).head(1).copy()
 
-        if train_data_ticker.empty or len(train_data_ticker) < 5: # Reduced min data points for per-stock
+        if train_data_ticker.empty or len(train_data_ticker) < 5: 
             # print(f"Skipping {ticker}: Not enough historical data with known outcomes to train a model.")
             continue
         
         if predict_data_ticker.empty:
-            # print(f"Skipping {ticker}: No new data available for forward-looking prediction.")
             continue
 
-        # Ensure predict_data_ticker is only the latest available features
-        predict_data_ticker = predict_data_ticker.sort_values('filing_date', ascending=False).head(1)
+        # In case the latest record is also in the training set (return is known), 
+        # that's fine - we still want to see the AI's latest "opinion" on it.
 
         X_train = train_data_ticker[features]
         y_train = train_data_ticker[target]

@@ -63,44 +63,55 @@ def get_sentiment_openai(mda_text: str, model: str = "gpt-4o-mini") -> dict:
 def get_sentiment_finbert(mda_text: str) -> dict:
     """
     Analyzes sentiment using the local HuggingFace ProsusAI/finbert model.
-    Chunks the text to respect the 512 token limit and averages the score.
-    Returns +1.0 for positive, -1.0 for negative, 0.0 for neutral.
+    Chunks the text to respect the 512 token limit and averages the probabilities.
+    Returns scalar score + triplet (pos, neg, neu probabilities).
     """
     if not mda_text or not isinstance(mda_text, str) or len(mda_text) < 50:
-        return {"score": 0.0, "justification": "No valid MD&A text provided."}
+        return {"score": 0.0, "pos": 0.33, "neg": 0.33, "neu": 0.33, "justification": "No valid MD&A text provided."}
     
     if finbert_pipeline is None:
-        return {"score": 0.0, "justification": "FinBERT model failed to load."}
+        return {"score": 0.0, "pos": 0.0, "neg": 0.0, "neu": 1.0, "justification": "FinBERT model failed to load."}
 
     # KISS chunking: Split by roughly 400 words to stay under 512 tokens
     words = mda_text.split()
     chunk_size = 400
     chunks = [' '.join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)]
     
-    total_score = 0.0
+    total_pos, total_neg, total_neu = 0.0, 0.0, 0.0
     valid_chunks = 0
     
     for chunk in chunks:
-        # Pipeline returns [{'label': 'positive', 'score': 0.92}]
         try:
-            result = finbert_pipeline(chunk)[0]
-            label = result['label']
-            confidence = result['score'] # How confident it is in the label
+            # top_k=None returns all scores: [{'label': 'positive', 'score': ...}, {'label': 'negative', 'score': ...}, {'label': 'neutral', 'score': ...}]
+            results = finbert_pipeline(chunk, top_k=None)
             
-            if label == 'positive':
-                total_score += confidence
-            elif label == 'negative':
-                total_score -= confidence
-            # neutral adds 0 to the score
+            # Map labels to scores
+            scores = {r['label']: r['score'] for r in results}
+            
+            total_pos += scores.get('positive', 0.0)
+            total_neg += scores.get('negative', 0.0)
+            total_neu += scores.get('neutral', 0.0)
             valid_chunks += 1
         except:
             continue
             
     if valid_chunks == 0:
-        return {"score": 0.0, "justification": "Failed to process any text chunks."}
+        return {"score": 0.0, "pos": 0.0, "neg": 0.0, "neu": 1.0, "justification": "Failed to process any text chunks."}
         
-    avg_score = total_score / valid_chunks
-    return {"score": avg_score, "justification": f"Average FinBERT score over {valid_chunks} chunks."}
+    avg_pos = total_pos / valid_chunks
+    avg_neg = total_neg / valid_chunks
+    avg_neu = total_neu / valid_chunks
+    
+    # Combined scalar score (-1 to 1)
+    scalar_score = avg_pos - avg_neg
+    
+    return {
+        "score": scalar_score, 
+        "pos": avg_pos, 
+        "neg": avg_neg, 
+        "neu": avg_neu,
+        "justification": f"Average FinBERT scores over {valid_chunks} chunks."
+    }
 
 
 def process_filings_for_sentiment(filings_df: pd.DataFrame, nlp_method: str = "finbert") -> pd.DataFrame:
@@ -120,6 +131,9 @@ def process_filings_for_sentiment(filings_df: pd.DataFrame, nlp_method: str = "f
         sentiment_results = filings_df['mda_text'].progress_apply(get_sentiment_finbert)
     
     filings_df['sentiment_score'] = sentiment_results.apply(lambda x: x.get('score', 0.0))
+    filings_df['sentiment_pos'] = sentiment_results.apply(lambda x: x.get('pos', 0.0))
+    filings_df['sentiment_neg'] = sentiment_results.apply(lambda x: x.get('neg', 0.0))
+    filings_df['sentiment_neu'] = sentiment_results.apply(lambda x: x.get('neu', 0.0))
     filings_df['sentiment_justification'] = sentiment_results.apply(lambda x: x.get('justification', ''))
     
     return filings_df

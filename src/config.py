@@ -43,8 +43,8 @@ def get_data_paths(nlp_method: str = "openai") -> dict:
     }
 
 # --- Processor Settings ---
-# Regex pattern for MD&A extraction (Item 2 to Item 3)
-MDNA_REGEX_PATTERN = r'(Item\s+2[.:]?\s+Management.*?)(?=Item\s+3[.:]?)'
+# Regex pattern for MD&A extraction (Item 2 to Item 3/4 or Part II)
+MDNA_REGEX_PATTERN = r'(Item\s+2[.:]?\s+.*?(?:Management.*?Discussion.*?Analysis).*?)(?=Item\s+3[.:]?|Item\s+4[.:]?|PART\s+II|Signatures)'
 MDNA_MIN_LENGTH = 1000 # Minimum characters for MD&A to be considered valid
 
 # --- Model Settings (XGBoost) ---

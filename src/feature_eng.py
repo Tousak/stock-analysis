@@ -8,7 +8,11 @@ from src.config import DATA_DIR
 from src.data_loader import fetch_stock_prices
 
 def calculate_financial_growth(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates revenue growth and net margin for each ticker."""
+    """Calculates revenue growth and net margin for each ticker with minor filling."""
+    # Forward fill financials within ticker group to handle rare missing points
+    df['revenue'] = df.groupby('ticker')['revenue'].ffill(limit=1)
+    df['net_income'] = df.groupby('ticker')['net_income'].ffill(limit=1)
+    
     df['revenue_growth'] = df.groupby('ticker')['revenue'].pct_change(fill_method=None)
     df['net_margin'] = df['net_income'] / df['revenue']
     return df
@@ -16,6 +20,12 @@ def calculate_financial_growth(df: pd.DataFrame) -> pd.DataFrame:
 def calculate_sentiment_change(df: pd.DataFrame) -> pd.DataFrame:
     """Calculates sentiment change (QoQ difference) for each ticker."""
     df['sentiment_change'] = df.groupby('ticker')['sentiment_score'].diff()
+    
+    # Also calculate changes for the triplet features if they exist
+    for col in ['sentiment_pos', 'sentiment_neg', 'sentiment_neu']:
+        if col in df.columns:
+            df[f'{col}_change'] = df.groupby('ticker')[col].diff()
+            
     return df
 
 def calculate_next_quarter_return(filings_df: pd.DataFrame, market_data_df: pd.DataFrame) -> pd.DataFrame:
@@ -109,32 +119,30 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str) -> p
 
     final_cleaned_dfs = []
 
-    # --- Aggressive Cleaning for Training Data (df_has_return) ---
+    # --- Granular Cleaning for Training Data (df_has_return) ---
     if not df_has_return.empty:
-        print(f"\nApplying aggressive cleaning to {len(df_has_return['ticker'].unique())} tickers with known returns...")
-        # Filter groups (tickers) that have no nulls in these critical columns
-        df_has_return_clean = df_has_return.groupby('ticker').filter(
-            lambda x: x[['revenue', 'net_income', 'mda_text']].notna().all().all()
-        ).copy()
-        df_has_return_clean.dropna(subset=['revenue_growth', 'net_margin', 'sentiment_change'], inplace=True)
+        print(f"\nApplying granular cleaning to {len(df_has_return)} historical rows...")
+        # Only drop rows that are actually missing critical features
+        critical_cols = ['revenue', 'net_income', 'sentiment_score', 'revenue_growth', 'net_margin', 'sentiment_change']
+        df_has_return_clean = df_has_return.dropna(subset=critical_cols).copy()
         
         if not df_has_return_clean.empty:
-            print(f"{len(df_has_return_clean['ticker'].unique())} tickers remaining after aggressive cleaning for training.")
+            print(f"{len(df_has_return_clean['ticker'].unique())} tickers / {len(df_has_return_clean)} rows remaining for training.")
             final_cleaned_dfs.append(df_has_return_clean)
         else:
-            print("No data remaining after aggressive cleaning for training data.")
+            print("No data remaining after granular cleaning for training data.")
 
     # --- Lenient Cleaning for Prediction Data (df_no_return) ---
     if not df_no_return.empty:
-        print(f"\nApplying lenient cleaning to {len(df_no_return['ticker'].unique())} tickers for prediction data (NaN next_quarter_return)...")
-        # For prediction data, ensure sentiment_score is present, but be lenient on others if NaN is expected
+        print(f"\nApplying lenient cleaning to {len(df_no_return)} tickers for prediction...")
+        # For prediction data, ensure sentiment features are present
         df_no_return_clean = df_no_return.dropna(subset=['sentiment_score', 'mda_text']).copy()
         
         # Ensure latest unique entries for prediction for each ticker
         df_no_return_clean = df_no_return_clean.groupby('ticker').tail(1).copy()
 
         if not df_no_return_clean.empty:
-            print(f"{len(df_no_return_clean['ticker'].unique())} tickers remaining after lenient cleaning for prediction.")
+            print(f"{len(df_no_return_clean['ticker'].unique())} tickers remaining for prediction.")
             final_cleaned_dfs.append(df_no_return_clean)
         else:
             print("No data remaining after lenient cleaning for prediction data.")
@@ -148,7 +156,9 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str) -> p
     # --- Final Column Selection and Save ---
     final_feature_columns = [
         'ticker', 'filing_date', 'revenue', 'net_income', 'sentiment_score',
-        'revenue_growth', 'net_margin', 'sentiment_change', 'next_quarter_return'
+        'revenue_growth', 'net_margin', 'sentiment_change', 'next_quarter_return',
+        'sentiment_pos', 'sentiment_neg', 'sentiment_neu',
+        'sentiment_pos_change', 'sentiment_neg_change', 'sentiment_neu_change'
     ]
     # Ensure columns exist before selection
     for col in final_feature_columns:

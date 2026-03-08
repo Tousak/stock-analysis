@@ -55,8 +55,16 @@ def run_process_step(nlp_method="finbert"):
     print(f"Found {len(filings_to_process)} new filings to process for sentiment using {nlp_method}...")
     processed_df_new = process_filings_for_sentiment(filings_to_process.copy(), nlp_method=nlp_method)
     
+    # DROP REDUNDANT COLUMNS TO SAVE SPACE (99% reduction)
+    # mda_text, revenue, net_income are already in raw_filings.xlsx
+    cols_to_drop = [c for c in ['mda_text', 'revenue', 'net_income'] if c in processed_df_new.columns]
+    processed_df_new = processed_df_new.drop(columns=cols_to_drop)
+    
     final_processed_df = pd.concat([processed_df_existing, processed_df_new], ignore_index=True)
     final_processed_df.drop_duplicates(subset=['accession_number'], keep='last', inplace=True)
+    
+    # Also ensure existing rows don't have these columns if they were somehow re-added
+    final_processed_df = final_processed_df.drop(columns=[c for c in cols_to_drop if c in final_processed_df.columns])
     
     final_processed_df.to_excel(PROCESSED_FILINGS_PATH, index=False)
     print(f"Updated processed filings saved to {PROCESSED_FILINGS_PATH} ({len(final_processed_df)} total).")
@@ -74,9 +82,25 @@ def run_engineer_step(nlp_method="finbert"):
         print(f"ERROR: Processed filings not found at {PROCESSED_FILINGS_PATH}. Please run --process first.")
         return False
     
+    if not os.path.exists(RAW_FILINGS_PATH):
+        print(f"ERROR: Raw filings not found at {RAW_FILINGS_PATH}. Cannot merge MDA text.")
+        return False
+
     processed_df = pd.read_excel(PROCESSED_FILINGS_PATH)
+    raw_df = pd.read_excel(RAW_FILINGS_PATH)
+    
+    # Merge sentiment cache with raw data to get mda_text and financials back for engineering
+    # We join on accession_number
+    print("Merging sentiment cache with raw filing data context...")
+    merged_df = pd.merge(
+        processed_df, 
+        raw_df[['accession_number', 'mda_text', 'revenue', 'net_income']], 
+        on='accession_number', 
+        how='left'
+    )
+    
     # the engineer function will need the output path
-    engineer_features(processed_df.copy(), output_path=FEATURES_PATH)
+    engineer_features(merged_df, output_path=FEATURES_PATH)
     return True
 
 def run_train_step(nlp_method="finbert"):
