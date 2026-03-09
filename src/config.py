@@ -9,7 +9,7 @@ TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B",
            "GE", "CSCO", "PLTR", "MRK", "WFC", "LRCX", "MS", "PM", "IBM", "GS",
             "RTX", "AMAT", "INTC", "UNH", "AXP", "PEP", "MCD", "TMUS", "C", 
             "GEV", "LIN", "AMGN"] # User-specified list
-NUM_QUARTERS_TO_FETCH = 12
+NUM_QUARTERS_TO_FETCH = 48
 
 # --- API Keys and Client Initialization ---
 load_dotenv()
@@ -41,6 +41,14 @@ def get_data_paths(nlp_method: str = "openai") -> dict:
         "BACKTEST_RESULTS_PATH": os.path.join(DATA_DIR, f"backtest_results{suffix}"),
         "LATEST_PREDICTIONS_PATH": os.path.join(DATA_DIR, f"latest_predictions{suffix}"),
     }
+# --- Default Paths for Compatibility ---
+# These constants are exported for modules that expect a single source of truth 
+# without calling get_data_paths() (like app.py and dashboard components).
+_default_paths = get_data_paths("finbert")
+PROCESSED_FILINGS_PATH = _default_paths["PROCESSED_FILINGS_PATH"]
+FEATURES_PATH = _default_paths["FEATURES_PATH"]
+PREDICTIONS_PATH = _default_paths["PREDICTIONS_PATH"]
+BACKTEST_RESULTS_PATH = _default_paths["BACKTEST_RESULTS_PATH"]
 
 # --- Processor Settings ---
 # Regex pattern for MD&A extraction (Item 2 to Item 3/4 or Part II)

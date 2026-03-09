@@ -4,6 +4,7 @@ from edgar import set_identity, Company
 from tqdm.auto import tqdm
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.config import EDGAR_IDENTITY, NUM_QUARTERS_TO_FETCH, TICKERS, RAW_FILINGS_PATH, DATA_DIR, MDNA_REGEX_PATTERN
 from src.blacklist import get_blacklist
@@ -124,56 +125,72 @@ def fetch_stock_prices(ticker: str, start_date: str, end_date: str) -> pd.DataFr
 
 def load_all_raw_data(tickers: list = TICKERS, num_quarters: int = NUM_QUARTERS_TO_FETCH) -> pd.DataFrame:
     """
-    Orchestrates fetching raw data. For each ticker, it fetches the num_quarters most recent
-    10-Q filings, prioritizing up-to-date data over strict caching.
+    Orchestrates fetching raw data with incremental loading and parallel processing.
     """
     blacklist = get_blacklist()
     filtered_tickers = [t.upper() for t in tickers if t.upper() not in blacklist]
-    print(f"Starting fetch for {len(filtered_tickers)} tickers (after removing {len(tickers) - len(filtered_tickers)} blacklisted).")
+    print(f"Starting optimized fetch for {len(filtered_tickers)} tickers.")
 
-    all_fetched_filings_data = []
+    os.makedirs(DATA_DIR, exist_ok=True)
+    
+    # 1. Load Cache
+    cache = {}
+    if os.path.exists(RAW_FILINGS_PATH):
+        try:
+            df_old = pd.read_excel(RAW_FILINGS_PATH)
+            # Cache keys: (ticker, accession_number)
+            for _, row in df_old.iterrows():
+                cache[(row['ticker'], row['accession_number'])] = row.to_dict()
+            print(f"Loaded {len(cache)} existing filings from cache.")
+        except Exception as e:
+            print(f"Warning: Could not read cache: {e}")
 
-    for ticker in tqdm(filtered_tickers, desc="Fetching latest filings per ticker"):
+    def process_single_ticker(ticker):
+        ticker_data = []
         try:
             company = Company(ticker)
             filings = company.get_filings(form="10-Q")
             if not filings:
-                print(f"No 10-Q filings found for {ticker}.")
-                continue
+                return []
 
-            # Always fetch and process the 'num_quarters' most recent filings
-            # This bypasses the strict caching based on accession numbers to ensure freshness.
             meta_df = filings.to_pandas()
             target_indices = meta_df.head(num_quarters).index
 
-            print(f"Fetching {len(target_indices)} latest filing(s) for {ticker}...")
-            for idx in tqdm(target_indices, desc=f"Downloading {ticker}", leave=False):
-                filing_data = fetch_and_extract_filing_data(ticker, filings[int(idx)])
-                all_fetched_filings_data.append(filing_data)
+            for idx in target_indices:
+                f = filings[int(idx)]
+                acc = f.accession_number
+                
+                # Check cache
+                if (ticker, acc) in cache:
+                    cached_row = cache[(ticker, acc)]
+                    # Verify MD&A is not empty before skipping
+                    if pd.notna(cached_row.get('mda_text')) and len(str(cached_row['mda_text'])) > 100:
+                        ticker_data.append(cached_row)
+                        continue
+                
+                # Missing or incomplete, so fetch
+                filing_data = fetch_and_extract_filing_data(ticker, f)
+                ticker_data.append(filing_data)
         except Exception as e:
-            print(f"An error occurred while processing ticker {ticker}: {e}")
+            print(f"Error processing {ticker}: {e}")
+        return ticker_data
 
-    if not all_fetched_filings_data:
-        print("No filings were fetched for any ticker.")
+    # 2. Parallel Processing
+    all_results = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(process_single_ticker, ticker): ticker for ticker in filtered_tickers}
+        for future in tqdm(as_completed(futures), total=len(filtered_tickers), desc="Fetching Data"):
+            all_results.extend(future.result())
+
+    if not all_results:
+        print("No data fetched.")
         return pd.DataFrame()
 
-    combined_df = pd.DataFrame(all_fetched_filings_data)
-    
-    # Merge with existing data if it exists
-    if os.path.exists(RAW_FILINGS_PATH):
-        try:
-            existing_df = pd.read_excel(RAW_FILINGS_PATH)
-            # Combine and ensure types match
-            combined_df = pd.concat([existing_df, combined_df], ignore_index=True)
-            print(f"Merged with {len(existing_df)} existing filings.")
-        except Exception as e:
-            print(f"Warning: Could not read existing raw filings for merging: {e}")
-
+    combined_df = pd.DataFrame(all_results)
     combined_df.drop_duplicates(subset=['ticker', 'accession_number'], keep='last', inplace=True)
     combined_df.sort_values(by=['ticker', 'filing_date'], ascending=[True, False], inplace=True)
     
-    os.makedirs(DATA_DIR, exist_ok=True)
     combined_df.to_excel(RAW_FILINGS_PATH, index=False)
-    print(f"Updated raw filings data saved to {RAW_FILINGS_PATH} ({len(combined_df)} total filings).")
+    print(f"Updated raw filings saved to {RAW_FILINGS_PATH} ({len(combined_df)} total).")
     
     return combined_df

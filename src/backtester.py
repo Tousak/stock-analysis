@@ -136,18 +136,14 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
 
 if __name__ == "__main__":
     print("Running backtester.py example (notebook-style)...")
-    try:
-        predictions_data = pd.read_excel("data/fetched/predictions_finbert.xlsx")
-        portfolio_results = simulate_portfolio(predictions_data.copy(), output_path="data/fetched/backtest_results_finbert.xlsx")
-        
-        if not portfolio_results.empty:
-            print("\nPortfolio Simulation Results:")
-            print(portfolio_results.tail())
-            final_value = portfolio_results['portfolio_value'].iloc[-1]
-            print(f"\nFinal portfolio value: ${final_value:,.2f}")
-            print(f"Total return: {((final_value / INITIAL_CAPITAL) - 1):.2%}")
+    
+    predictions_data = pd.read_excel("data/fetched/predictions_finbert.xlsx")
+    portfolio_results = simulate_portfolio(predictions_data.copy(), output_path="data/fetched/backtest_results_finbert.xlsx")
+    
+    if not portfolio_results.empty:
+        print("\nPortfolio Simulation Results:")
+        print(portfolio_results.tail())
+        final_value = portfolio_results['portfolio_value'].iloc[-1]
+        print(f"\nFinal portfolio value: ${final_value:,.2f}")
+        print(f"Total return: {((final_value / INITIAL_CAPITAL) - 1):.2%}")
 
-    except FileNotFoundError:
-        print("Error: Predictions file not found. Please run --train first.")
-    except Exception as e:
-        print(f"An error occurred during backtester.py example: {e}")
