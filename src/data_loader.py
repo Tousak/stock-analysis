@@ -145,13 +145,16 @@ def load_all_raw_data(tickers: list = TICKERS, num_quarters: int = NUM_QUARTERS_
         except Exception as e:
             print(f"Warning: Could not read cache: {e}")
 
-    def process_single_ticker(ticker):
-        ticker_data = []
+    # 2. Gather all tasks (filings that need fetching or cache-loading)
+    tasks = []
+    print(f"Checking for new filings for {len(filtered_tickers)} tickers...")
+    
+    for ticker in tqdm(filtered_tickers, desc="Scanning for Filings"):
         try:
             company = Company(ticker)
             filings = company.get_filings(form="10-Q")
             if not filings:
-                return []
+                continue
 
             meta_df = filings.to_pandas()
             target_indices = meta_df.head(num_quarters).index
@@ -163,24 +166,31 @@ def load_all_raw_data(tickers: list = TICKERS, num_quarters: int = NUM_QUARTERS_
                 # Check cache
                 if (ticker, acc) in cache:
                     cached_row = cache[(ticker, acc)]
-                    # Verify MD&A is not empty before skipping
                     if pd.notna(cached_row.get('mda_text')) and len(str(cached_row['mda_text'])) > 100:
-                        ticker_data.append(cached_row)
+                        all_results.append(cached_row) # Add directly to results
                         continue
                 
-                # Missing or incomplete, so fetch
-                filing_data = fetch_and_extract_filing_data(ticker, f)
-                ticker_data.append(filing_data)
+                # If not in cache, add to parallel task list
+                tasks.append((ticker, f))
         except Exception as e:
-            print(f"Error processing {ticker}: {e}")
-        return ticker_data
+            print(f"Error scanning {ticker}: {e}")
 
-    # 2. Parallel Processing
-    all_results = []
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(process_single_ticker, ticker): ticker for ticker in filtered_tickers}
-        for future in tqdm(as_completed(futures), total=len(filtered_tickers), desc="Fetching Data"):
-            all_results.extend(future.result())
+    if not tasks:
+        if all_results:
+            print("All filings already in cache. No new data to fetch.")
+        else:
+            print("No filings found for the selected tickers.")
+            return pd.DataFrame()
+
+    # 3. Parallel Processing of the flat task list
+    print(f"Starting parallel fetch of {len(tasks)} new filings...")
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(fetch_and_extract_filing_data, t, f): (t, f.filing_date) for t, f in tasks}
+        for future in tqdm(as_completed(futures), total=len(tasks), desc="Downloading Filings"):
+            try:
+                all_results.append(future.result())
+            except Exception as e:
+                print(f"Error fetching specific filing: {e}")
 
     if not all_results:
         print("No data fetched.")

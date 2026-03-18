@@ -60,16 +60,11 @@ def run_process_step(nlp_method="finbert"):
     print(f"Found {len(filings_to_process)} new filings to process for sentiment using {nlp_method}...")
     processed_df_new = process_filings_for_sentiment(filings_to_process.copy(), nlp_method=nlp_method)
     
-    # DROP REDUNDANT COLUMNS TO SAVE SPACE (99% reduction)
-    # mda_text, revenue, net_income are already in raw_filings.xlsx
-    cols_to_drop = [c for c in ['mda_text', 'revenue', 'net_income'] if c in processed_df_new.columns]
-    processed_df_new = processed_df_new.drop(columns=cols_to_drop)
+    # KEEP ALL COLUMNS (mda_text, revenue, net_income) as requested by user
+    # (Previously dropped here to save 99% space)
     
     final_processed_df = pd.concat([processed_df_existing, processed_df_new], ignore_index=True)
     final_processed_df.drop_duplicates(subset=['accession_number'], keep='last', inplace=True)
-    
-    # Also ensure existing rows don't have these columns if they were somehow re-added
-    final_processed_df = final_processed_df.drop(columns=[c for c in cols_to_drop if c in final_processed_df.columns])
     
     final_processed_df.to_excel(PROCESSED_FILINGS_PATH, index=False)
     print(f"Updated processed filings saved to {PROCESSED_FILINGS_PATH} ({len(final_processed_df)} total).")
@@ -92,18 +87,25 @@ def run_engineer_step(nlp_method="finbert", is_alpha=False):
         return False
 
     processed_df = pd.read_excel(PROCESSED_FILINGS_PATH)
-    raw_df = pd.read_excel(RAW_FILINGS_PATH)
     
-    # Merge sentiment cache with raw data to get mda_text and financials back for engineering
-    # We join on accession_number. Drop existing financials in processed_df to avoid duplicates.
-    print("Merging sentiment cache with raw filing data context...")
-    processed_df = processed_df.drop(columns=[c for c in ['mda_text', 'revenue', 'net_income'] if c in processed_df.columns])
-    merged_df = pd.merge(
-        processed_df, 
-        raw_df[['accession_number', 'mda_text', 'revenue', 'net_income']], 
-        on='accession_number', 
-        how='left'
-    )
+    # Check if we have required columns, if not, try to recover from raw_df
+    required = ['mda_text', 'revenue', 'net_income']
+    if not all(col in processed_df.columns for col in required):
+        print("Required context columns missing in processed file. Merging from raw filing data...")
+        if not os.path.exists(RAW_FILINGS_PATH):
+            print(f"ERROR: Raw filings not found at {RAW_FILINGS_PATH}. Cannot recover missing columns.")
+            return False
+        raw_df = pd.read_excel(RAW_FILINGS_PATH)
+        processed_df = processed_df.drop(columns=[c for c in required if c in processed_df.columns])
+        processed_df = pd.merge(
+            processed_df, 
+            raw_df[['accession_number', 'mda_text', 'revenue', 'net_income']], 
+            on='accession_number', 
+            how='left'
+        )
+    
+    merged_df = processed_df
+    
     
     # the engineer function will need the output path
     horizon = 5 if is_alpha else 90

@@ -104,7 +104,8 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str, hori
     """
     df = processed_filings_df.copy()
     
-    df['mda_text'].replace('', np.nan, inplace=True)
+    if 'mda_text' in df.columns:
+        df['mda_text'].replace('', np.nan, inplace=True)
     df.sort_values(by=['ticker', 'filing_date'], inplace=True)
 
     # --- Initial Feature Calculation (before splitting for cleaning) ---
@@ -171,7 +172,9 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str, hori
     if not df_no_return.empty:
         print(f"\nApplying lenient cleaning to {len(df_no_return)} tickers for prediction...")
         # For prediction data, ensure sentiment features are present
-        cols_to_check = ['sentiment_score', 'mda_text']
+        cols_to_check = ['sentiment_score']
+        if 'mda_text' in df_no_return.columns:
+            cols_to_check.append('mda_text')
         if include_ta:
             cols_to_check += ['rsi', 'macd', 'volatility']
         

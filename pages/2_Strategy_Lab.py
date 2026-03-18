@@ -118,14 +118,42 @@ else:
     spy_normalized = (spy_data['Close'] / spy_data['Close'].iloc[0]) * initial_capital_input
     spy_normalized.name = "S&P 500 (SPY)"
 
+    # --- 1b. Fetch Universe Buy & Hold Benchmark (50 stocks) ---
+    pred_path_for_tickers = get_alpha_path(paths["PREDICTIONS_PATH"], is_alpha)
+    if os.path.exists(pred_path_for_tickers):
+        with st.spinner("Calculating Universe Buy & Hold benchmark..."):
+            preds_for_tickers = pd.read_excel(pred_path_for_tickers)
+            universe_tickers = preds_for_tickers['ticker'].unique()
+            
+            # Fetch prices for the whole universe
+            universe_prices = yf.download(universe_tickers.tolist(), start=start_date, end=end_date, progress=False)
+            if isinstance(universe_prices.columns, pd.MultiIndex):
+                u_closes = universe_prices['Close']
+            else:
+                u_closes = pd.DataFrame({universe_tickers[0]: universe_prices['Close']})
+            
+            # Calculate equal-weighted daily value
+            # (Mean of relative price changes from start)
+            u_normalized_prices = u_closes / u_closes.iloc[0]
+            universe_bh = u_normalized_prices.mean(axis=1) * initial_capital_input
+            universe_bh.name = f"Buy & Hold ({len(universe_tickers)} Stocks)"
+            universe_bh.index = pd.to_datetime(universe_bh.index)
+    else:
+        universe_bh = pd.Series()
+
     # --- 2. Plot Equity Curve vs. Benchmark ---
     st.subheader("Equity Curve")
     equity_curve_df = results_df.set_index('date')[['portfolio_value']]
     equity_curve_df.rename(columns={'portfolio_value': 'Our Strategy'}, inplace=True)
     
     # Combine strategy and benchmark for plotting
-    combined_plot = pd.concat([equity_curve_df, spy_normalized], axis=1).ffill()
+    plot_list = [equity_curve_df, spy_normalized]
+    if not universe_bh.empty:
+        plot_list.append(universe_bh)
+        
+    combined_plot = pd.concat(plot_list, axis=1).ffill()
     st.line_chart(combined_plot)
+
 
     # --- 3. Display Metrics ---
     st.subheader("Performance Metrics")

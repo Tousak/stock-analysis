@@ -2,15 +2,13 @@ import pandas as pd
 import os
 from tqdm.auto import tqdm
 from datetime import timedelta
+import yfinance as yf
 
 from src.config import INITIAL_CAPITAL, DATA_DIR
 
 def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_capital: float = INITIAL_CAPITAL, start_year: int = 2021, frequency: str = 'Q', top_n: int = 50, rebalance_days: int = 1) -> pd.DataFrame:
     """
-    Simulates a portfolio strategy with dynamic rebalancing frequency.
-    frequency: 'Q' for Quarterly, 'D' for Daily/Interval-based.
-    top_n: Max number of top stocks to include in the portfolio.
-    rebalance_days: Interval between rebalances in days (only for frequency='D').
+    Simulates a portfolio strategy with daily resolution between rebalance points.
     """
     if predictions_df.empty:
         print("Predictions DataFrame is empty. Cannot simulate portfolio.")
@@ -24,7 +22,6 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
         return_col = 'next_quarter_return'
         lookahead = 90
     else:
-        # Look for return_Xd columns
         return_cols = [c for c in df.columns if c.startswith('return_') and c.endswith('d')]
         if return_cols:
             return_col = return_cols[0]
@@ -37,113 +34,136 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
         df['rebalance_date'] = df['filing_date'].dt.to_period('Q').dt.start_time
         rebalance_dates = sorted([d for d in df['rebalance_date'].unique() if d.year >= start_year])
     else:
-        # For Alpha mode, we rebalance at fixed intervals starting from the first filing date
         min_date = df[df['filing_date'].dt.year >= start_year]['filing_date'].min()
         max_date = df['filing_date'].max()
         if pd.isna(min_date):
             print(f"No filings found for the selected start year {start_year}.")
             return pd.DataFrame()
-            
         rebalance_dates = pd.date_range(start=min_date, end=max_date, freq=f'{rebalance_days}D')
 
-    portfolio_value = initial_capital
-    start_date = rebalance_dates[0] - timedelta(days=1)
+    # --- Fetch Daily Market Data ---
+    all_tickers = df['ticker'].unique()
+    start_market_date = (rebalance_dates[0] - timedelta(days=1)).strftime('%Y-%m-%d')
+    end_market_date = (rebalance_dates[-1] + timedelta(days=lookahead + 30)).strftime('%Y-%m-%d')
     
-    portfolio_history = [{
-        'date': pd.to_datetime(start_date),
-        'portfolio_value': initial_capital,
-        'quarterly_return': 0.0,
-        'selection': 'Initial Capital'
-    }]
+    print(f"Fetching daily price history for {len(all_tickers)} tickers...")
+    market_prices = yf.download(all_tickers.tolist(), start=start_market_date, end=end_market_date, progress=False)
+    
+    if isinstance(market_prices.columns, pd.MultiIndex):
+        daily_closes = market_prices['Close']
+    else:
+        daily_closes = pd.DataFrame({all_tickers[0]: market_prices['Close']})
+    
+    daily_closes.index = pd.to_datetime(daily_closes.index).tz_localize(None)
+
+    portfolio_value = initial_capital
+    portfolio_history = []
+    
+    current_selection = []
+    current_weights = pd.Series(dtype='float64')
+    last_rebalance_value = initial_capital
+    last_r_date = rebalance_dates[0] - timedelta(days=1)
     
     print(f"--- Backtest Initializing ({'Quarterly' if frequency == 'Q' else f'Every {rebalance_days} Days'}) ---")
-    print(f"Settings: Top {top_n} stocks | Initial Capital: ${initial_capital:,.2f}\n")
     
-    for r_date in tqdm(rebalance_dates, desc=f"Backtesting {frequency}"):
-        # Find active predictions: 
-        # For Quarterly: Filings in this quarter
-        # For Alpha: Latest filing for each ticker that is not older than 'lookahead' days from r_date
-        
+    all_market_days = daily_closes.index[daily_closes.index >= pd.to_datetime(rebalance_dates[0])]
+    last_processed_period = None
+    
+    for current_day in tqdm(all_market_days, desc="Simulating Daily"):
+        # 1. Determine the period of the current day
         if frequency == 'Q':
-            period_predictions = df[df['rebalance_date'] == r_date]
+            current_period = current_day.to_period('Q')
         else:
-            # Alpha mode: Get the latest prediction for each ticker that is available on this rebalance date
-            # and is still within its "validity window" (lookahead days)
-            # We want filings where: filing_date <= r_date AND filing_date > r_date - lookahead
-            active_mask = (df['filing_date'] <= r_date) & (df['filing_date'] > r_date - timedelta(days=lookahead))
-            period_predictions = df[active_mask].sort_values('filing_date').groupby('ticker').tail(1)
+            # For daily/interval, we treat every rebalance as a unique period ID
+            # based on how many intervals have passed since start
+            days_since_start = (current_day - pd.to_datetime(rebalance_dates[0])).days
+            current_period = days_since_start // rebalance_days
 
-        if period_predictions.empty:
-            period_return = 0.0
-            selection = "CASH (No active predictions)"
-        else:
-            positive_predictions = period_predictions[period_predictions['predicted_return'] > 0.0]
-
-            if positive_predictions.empty:
-                period_return = 0.0
-                selection = "CASH (No positive predictions)"
+        # 2. Rebalance Check: Trigger if we enter a new period or have no selection yet
+        if current_period != last_processed_period or not current_selection:
+            # Set the date to search for in predictions
+            if frequency == 'Q':
+                r_date_ts = pd.to_datetime(current_day.to_period('Q').start_time)
             else:
-                # Apply Top N
+                r_date_ts = pd.to_datetime(current_day.date())
+            
+            # Lock in the previous period's performance
+            last_rebalance_value = portfolio_value 
+            
+            # Find active predictions for this period
+            if frequency == 'Q':
+                period_predictions = df[df['rebalance_date'] == r_date_ts]
+            else:
+                active_mask = (df['filing_date'] <= r_date_ts) & (df['filing_date'] > r_date_ts - timedelta(days=lookahead))
+                period_predictions = df[active_mask].sort_values('filing_date').groupby('ticker').tail(1)
+
+            positive_predictions = period_predictions[period_predictions['predicted_return'] > 0.0]
+            if positive_predictions.empty:
+                current_selection = []
+                current_weights = pd.Series(dtype='float64')
+            else:
                 positive_predictions = positive_predictions.sort_values('predicted_return', ascending=False).head(top_n)
-                
                 total_weight = positive_predictions['predicted_return'].sum()
-                if total_weight == 0:
-                    period_return = 0.0
-                    selection = "CASH (Zero predicted return sum)"
+                current_weights = positive_predictions.set_index('ticker')['predicted_return'] / total_weight
+                current_selection = positive_predictions['ticker'].tolist()
+            
+            last_r_date = current_day
+            last_processed_period = current_period
+
+        # 3. Daily Valuation
+        if not current_selection:
+            daily_return = 0.0
+        else:
+            try:
+                start_prices = daily_closes.loc[last_r_date, current_selection]
+                now_prices = daily_closes.loc[current_day, current_selection]
+                valid_tickers = [t for t in current_selection if pd.notna(start_prices[t]) and pd.notna(now_prices[t]) and start_prices[t] > 0]
+                
+                if not valid_tickers:
+                    daily_return = 0.0
                 else:
-                    weights = positive_predictions['predicted_return'] / total_weight
+                    sub_weights = current_weights[valid_tickers]
+                    sub_weights = sub_weights / sub_weights.sum()
+                    growth = (now_prices[valid_tickers] / start_prices[valid_tickers])
+                    current_rel_value = (growth * sub_weights).sum()
+                    portfolio_value = last_rebalance_value * current_rel_value
                     
-                    # SCALE THE RETURN:
-                    # If lookahead is 5 days (Alpha) but we rebalance every 1 day, 
-                    # we only take 1/5th of the return (geometrically).
-                    # formula: (1 + total_return) ** (days_held / lookahead_days) - 1
-                    raw_return = (positive_predictions[return_col] * weights).sum()
-                    
-                    if frequency == 'Q':
-                        period_return = raw_return # 90 days / 90 days = 1
-                    else:
-                        hold_days = rebalance_days
-                        # Safety check: raw_return < -1 is impossible in finance but good for math safety
-                        safe_raw = max(raw_return, -0.99)
-                        period_return = (1 + safe_raw) ** (hold_days / lookahead) - 1
-                        
-                    selection = ", ".join(positive_predictions['ticker'].tolist())
-        
-        # --- Debug prints for the loop ---
-        if frequency == 'Q' or (isinstance(r_date, pd.Timestamp) and r_date.day % 10 == 0): # Reduced print frequency for daily
-             print(f"\n--- Date: {r_date.date()} ---")
-             print(f"Selection: {selection[:100]}..." if len(selection) > 100 else f"Selection: {selection}")
-             print(f"Period Return (Scaled): {period_return:.4%}")
-        
-        portfolio_value *= (1 + period_return)
-        
+                    prev_val = portfolio_history[-1]['portfolio_value'] if portfolio_history else initial_capital
+                    daily_return = (portfolio_value / prev_val) - 1
+            except Exception:
+                daily_return = 0.0
+
         portfolio_history.append({
-            'date': r_date,
+            'date': current_day,
             'portfolio_value': portfolio_value,
-            'quarterly_return': period_return,
-            'selection': selection
+            'quarterly_return': daily_return,
+            'selection': ", ".join(current_selection) if current_selection else "CASH"
         })
 
-    if len(portfolio_history) <= 1:
-        print("No trades were made during the backtest period.")
+    if not portfolio_history:
+        print("No data recorded.")
         return pd.DataFrame()
 
     final_df = pd.DataFrame(portfolio_history)
     os.makedirs(DATA_DIR, exist_ok=True)
     final_df.to_excel(output_path, index=False)
-    print(f"\nBacktest results saved to {output_path}")
+    print(f"\nDaily Backtest results saved to {output_path}")
     return final_df
 
 if __name__ == "__main__":
-    print("Running backtester.py example (notebook-style)...")
-    
-    predictions_data = pd.read_excel("data/fetched/predictions_finbert.xlsx")
-    portfolio_results = simulate_portfolio(predictions_data.copy(), output_path="data/fetched/backtest_results_finbert.xlsx")
-    
-    if not portfolio_results.empty:
-        print("\nPortfolio Simulation Results:")
-        print(portfolio_results.tail())
-        final_value = portfolio_results['portfolio_value'].iloc[-1]
-        print(f"\nFinal portfolio value: ${final_value:,.2f}")
-        print(f"Total return: {((final_value / INITIAL_CAPITAL) - 1):.2%}")
-
+    print("Running backtester.py example...")
+    try:
+        from src.config import PROCESSED_FILINGS_PATH
+        # We need predictions file, fallback to features if missing but usually predictions exist
+        pred_path = os.path.join(DATA_DIR, "predictions_finbert.xlsx")
+        if not os.path.exists(pred_path):
+            pred_path = os.path.join(DATA_DIR, "features_finbert.xlsx")
+            
+        predictions_data = pd.read_excel(pred_path)
+        # Ensure predicted_return is present (default to sentiment_score if missing for simple test)
+        if 'predicted_return' not in predictions_data.columns:
+             predictions_data['predicted_return'] = predictions_data.get('sentiment_score', 0)
+             
+        simulate_portfolio(predictions_data.copy(), output_path=os.path.join(DATA_DIR, "backtest_results_finbert.xlsx"))
+    except Exception as e:
+        print(f"Error in example: {e}")

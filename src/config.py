@@ -31,16 +31,30 @@ DATA_DIR = "data/fetched"
 BLACKLIST_PATH = os.path.join(DATA_DIR, "blacklist.txt")
 RAW_FILINGS_PATH = os.path.join(DATA_DIR, "raw_filings.xlsx")
 
-def get_data_paths(nlp_method: str = "openai") -> dict:
+def get_data_paths(nlp_method: str = "finbert") -> dict:
     """Returns a dictionary of dynamic file paths based on the chosen NLP method."""
     suffix = f"_{nlp_method}.xlsx"
-    return {
+    
+    # We define the paths with the suffix
+    paths = {
         "PROCESSED_FILINGS_PATH": os.path.join(DATA_DIR, f"processed_filings{suffix}"),
         "FEATURES_PATH": os.path.join(DATA_DIR, f"features{suffix}"),
         "PREDICTIONS_PATH": os.path.join(DATA_DIR, f"predictions{suffix}"),
         "BACKTEST_RESULTS_PATH": os.path.join(DATA_DIR, f"backtest_results{suffix}"),
         "LATEST_PREDICTIONS_PATH": os.path.join(DATA_DIR, f"latest_predictions{suffix}"),
     }
+    
+    # SMART FALLBACK: If the unsuffixed 'processed_filings.xlsx' exists and is 
+    # much larger than the suffixed one (or the suffixed one is missing), use it.
+    master_path = os.path.join(DATA_DIR, "processed_filings.xlsx")
+    suffixed_path = paths["PROCESSED_FILINGS_PATH"]
+    
+    if os.path.exists(master_path):
+        if not os.path.exists(suffixed_path) or os.path.getsize(master_path) > os.path.getsize(suffixed_path) * 2:
+            # If master exists and is much bigger/only one, use it
+            paths["PROCESSED_FILINGS_PATH"] = master_path
+            
+    return paths
 # --- Default Paths for Compatibility ---
 # These constants are exported for modules that expect a single source of truth 
 # without calling get_data_paths() (like app.py and dashboard components).
