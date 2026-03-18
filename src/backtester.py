@@ -140,6 +140,38 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
             'selection': ", ".join(current_selection) if current_selection else "CASH"
         })
 
+    # --- Calculate Benchmarks (SPY and Universe Buy & Hold) ---
+    print("Calculating benchmarks for comparison...")
+    spy_data = yf.download('^GSPC', start=all_market_days[0], end=all_market_days[-1], progress=False)
+    
+    # Ensure spy_prices is a flat Series even if yfinance returns multi-index
+    if isinstance(spy_data.columns, pd.MultiIndex):
+        spy_prices = spy_data['Close']['^GSPC']
+    else:
+        spy_prices = spy_data['Close']
+    
+    spy_prices = spy_prices.reindex(all_market_days).ffill()
+    spy_normalized = (spy_prices / spy_prices.dropna().iloc[0]) * initial_capital
+    
+    # Universe Buy & Hold (Equal weight all tickers ever present in predictions)
+    universe_tickers = df['ticker'].unique()
+    u_prices = daily_closes[universe_tickers].reindex(all_market_days).ffill()
+    
+    # Correct Normalization: Find first available price for each ticker individually
+    # to avoid entire rows being dropped by NaNs
+    u_start_prices = u_prices.apply(lambda x: x.dropna().iloc[0] if not x.dropna().empty else np.nan)
+    u_normalized = (u_prices / u_start_prices).mean(axis=1, skipna=True) * initial_capital
+    
+    # Average of relative growth across the whole universe
+
+
+    for entry in portfolio_history:
+        current_date = entry['date']
+        # Use .item() or float() to ensure we store a scalar, not a Series
+        entry['spy_value'] = float(spy_normalized.loc[current_date]) if current_date in spy_normalized.index else initial_capital
+        entry['universe_bh_value'] = float(u_normalized.loc[current_date]) if current_date in u_normalized.index else initial_capital
+
+
     if not portfolio_history:
         print("No data recorded.")
         return pd.DataFrame()
