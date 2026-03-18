@@ -26,10 +26,10 @@
           <mxGeometry height="60" width="240" x="400" y="810" as="geometry" />
         </mxCell>
         <mxCell id="proc_predict" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" value="generate_next_quarter_prediction()&#xa;(XGBoost.predict)" vertex="1">
-          <mxGeometry height="60" width="240" x="150" y="1130" as="geometry" />
+          <mxGeometry height="60" width="240" x="260" y="1130" as="geometry" />
         </mxCell>
         <mxCell id="table_predictions" parent="1" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;latest_predictions.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker&lt;br/&gt;+ filing_date&lt;br/&gt;+ predicted_return&lt;br/&gt;+ target_return&lt;/p&gt;" vertex="1">
-          <mxGeometry height="100" width="200" x="170" y="1250" as="geometry" />
+          <mxGeometry height="100" width="200" x="280" y="1250" as="geometry" />
         </mxCell>
         <mxCell id="proc_backtest" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" value="simulate_portfolio()&#xa;(Frequency Rebalance &amp; Weighting)" vertex="1">
           <mxGeometry height="60" width="240" x="550" y="1130" as="geometry" />
@@ -50,10 +50,10 @@
           <mxGeometry height="80" width="160" x="150" y="420" as="geometry" />
         </mxCell>
         <mxCell id="ext_yfinance2" parent="1" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" value="yfinance API&#xa;(Market Data)" vertex="1">
-          <mxGeometry height="80" width="140" x="150" y="800" as="geometry" />
+          <mxGeometry height="80" width="140" x="150" y="750" as="geometry" />
         </mxCell>
         <mxCell id="table_portfolio" parent="1" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;Virtual Portfolio&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ Cash&lt;br/&gt;+ Holdings&lt;br/&gt;+ Total Value&lt;br/&gt;+ Rebalanced&lt;/p&gt;" vertex="1">
-          <mxGeometry height="110" width="160" x="190" y="1400" as="geometry" />
+          <mxGeometry height="110" width="160" x="300" y="1400" as="geometry" />
         </mxCell>
         <mxCell id="e1" edge="1" parent="1" source="table_blacklist" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fontColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="proc_fetch" value="">
           <mxGeometry relative="1" as="geometry" />
@@ -68,9 +68,6 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e5" edge="1" parent="1" source="table_processed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fontColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="proc_features" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e_merge" edge="1" parent="1" source="table_raw" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fontColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;dashed=1;curved=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="proc_features" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e6" edge="1" parent="1" source="proc_features" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fontColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="table_features" value="">
@@ -100,7 +97,7 @@
         <mxCell id="e14" edge="1" parent="1" source="finbert_steps" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fontColor=#000000;entryX=0.5;entryY=0;entryDx=0;entryDy=0;dashed=1;" target="proc_sentiment" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e15" edge="1" parent="1" source="ext_yfinance2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fontColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;dashed=1;" target="proc_features" value="">
+        <mxCell id="e15" edge="1" parent="1" source="ext_yfinance2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fontColor=#000000;entryX=0.5;entryY=0;entryDx=0;entryDy=0;dashed=1;" target="proc_features" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e16" edge="1" parent="1" source="table_predictions" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fontColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;dashed=1;" target="table_portfolio" value="">
