@@ -1,0 +1,89 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0" version="29.2.9">
+  <diagram id="feature_engineering_pipeline" name="Feature Engineering Pipeline">
+    <mxGraphModel dx="1418" dy="746" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- Table: processed_filings.xlsx -->
+        <mxCell id="in_processed" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;processed_filings.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker&lt;br/&gt;+ filing_date&lt;br/&gt;+ sentiment_score&lt;br/&gt;+ sentiment_pos/neg/neu&lt;br/&gt;+ revenue&lt;br/&gt;+ net_income&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="320" y="40" width="180" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- Process: engineer_features -->
+        <mxCell id="proc_eng" value="engineer_features()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="330" y="200" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Sub-Process: Growth & Sentiment -->
+        <mxCell id="sub_calc" value="calculate_financial_growth()&lt;br&gt;calculate_sentiment_change()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="310" y="300" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- External: yfinance (Market Data) -->
+        <mxCell id="ext_market" value="fetch_stock_prices()&lt;br&gt;(yfinance)" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="580" y="290" width="160" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Sub-Process: TA & Returns -->
+        <mxCell id="sub_ta_ret" value="calculate_technical_indicators()&lt;br&gt;calculate_future_return()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="310" y="400" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Logic: Cleaning Split -->
+        <mxCell id="split_clean" value="Has Return Target?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="330" y="500" width="160" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Process: Granular Cleaning -->
+        <mxCell id="clean_granular" value="Granular Cleaning&lt;br&gt;(Training Set)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="180" y="620" width="140" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Process: Lenient Cleaning -->
+        <mxCell id="clean_lenient" value="Lenient Cleaning&lt;br&gt;(Prediction Set)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="500" y="620" width="140" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Table: features_finbert.xlsx -->
+        <mxCell id="out_features" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;features_finbert.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ All Input Cols&lt;br/&gt;+ revenue_growth&lt;br/&gt;+ net_margin&lt;br/&gt;+ sentiment_change&lt;br/&gt;+ rsi, macd, volatility&lt;br/&gt;+ next_quarter_return&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="320" y="740" width="180" height="130" as="geometry" />
+        </mxCell>
+
+        <!-- Connectors -->
+        <mxCell id="e1" edge="1" parent="1" source="in_processed" target="proc_eng" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="proc_eng" target="sub_calc" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="sub_calc" target="sub_ta_ret" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="ext_market" target="sub_ta_ret" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="sub_ta_ret" target="split_clean" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="split_clean" target="clean_granular" value="Yes" style="endArrow=classic;html=1;fontColor=#000000;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="split_clean" target="clean_lenient" value="No" style="endArrow=classic;html=1;fontColor=#000000;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="clean_granular" target="out_features" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="clean_lenient" target="out_features" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

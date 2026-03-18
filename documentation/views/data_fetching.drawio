@@ -1,0 +1,57 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0" version="29.2.9">
+  <diagram id="data_fetching_pipeline" name="Data Fetching Pipeline">
+    <mxGraphModel dx="1418" dy="746" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="table_raw" parent="1" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;raw_filings.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker&lt;br/&gt;+ filing_date&lt;br/&gt;+ revenue&lt;br/&gt;+ net_income&lt;br/&gt;+ mda_text&lt;br/&gt;+ accession_number&lt;/p&gt;" vertex="1">
+          <mxGeometry height="120" width="160" x="320" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="table_blacklist" parent="1" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;blacklist.txt&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker_list&lt;/p&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="40" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="proc_load" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" value="load_all_raw_data()" vertex="1">
+          <mxGeometry height="60" width="160" x="320" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="proc_get_bl" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" value="get_blacklist()" vertex="1">
+          <mxGeometry height="60" width="120" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="proc_single" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" value="process_single_ticker()&lt;br&gt;(Thread Pool)" vertex="1">
+          <mxGeometry height="60" width="160" x="320" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="proc_fetch_ext" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" value="fetch_and_extract_filing_data()" vertex="1">
+          <mxGeometry height="60" width="200" x="300" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="ext_edgar" parent="1" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" value="SEC EDGAR&lt;br&gt;(edgar-tools)" vertex="1">
+          <mxGeometry height="80" width="120" x="100" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="ext_yfinance" parent="1" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" value="yfinance&lt;br&gt;(API)" vertex="1">
+          <mxGeometry height="80" width="120" x="580" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="edge1" edge="1" parent="1" source="proc_load" style="endArrow=classic;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;fontColor=#000000;" target="proc_get_bl" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge2" edge="1" parent="1" source="proc_get_bl" style="endArrow=classic;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontColor=#000000;" target="table_blacklist" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge3" edge="1" parent="1" source="proc_load" style="endArrow=classic;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontColor=#000000;" target="proc_single" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge4" edge="1" parent="1" source="proc_single" style="endArrow=classic;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontColor=#000000;" target="proc_fetch_ext" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge5" edge="1" parent="1" source="proc_fetch_ext" style="endArrow=classic;html=1;exitX=0;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontColor=#000000;" target="ext_edgar" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge6" edge="1" parent="1" source="proc_fetch_ext" style="endArrow=classic;html=1;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontColor=#000000;" target="ext_yfinance" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge7" edge="1" parent="1" source="proc_fetch_ext" style="endArrow=classic;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontColor=#000000;labelBackgroundColor=#ffffff;" target="table_raw" value="Merge Result">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,68 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0" version="29.2.9">
+  <diagram id="prediction_pipeline" name="Prediction Pipeline">
+    <mxGraphModel dx="1418" dy="746" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- Table: features_finbert.xlsx -->
+        <mxCell id="in_features" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;features_finbert.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker&lt;br/&gt;+ filing_date&lt;br/&gt;+ sentiment_score&lt;br/&gt;+ rsi, macd, volatility&lt;br/&gt;+ revenue_growth&lt;br/&gt;+ net_margin&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="320" y="40" width="180" height="130" as="geometry" />
+        </mxCell>
+
+        <!-- Process: generate_next_quarter_prediction -->
+        <mxCell id="proc_inference" value="generate_next_quarter_prediction()&lt;br&gt;(Model Per Ticker)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="300" y="210" width="220" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Sub-Process: Inference Logic -->
+        <mxCell id="logic_inference" value="1. Train on historical quarters&lt;br&gt;2. Load latest record (unseen)&lt;br&gt;3. XGBoost.predict()" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;align=left;" vertex="1" parent="1">
+          <mxGeometry x="560" y="190" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Table: latest_predictions.xlsx -->
+        <mxCell id="out_preds" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;latest_predictions.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker&lt;br/&gt;+ filing_date&lt;br/&gt;+ predicted_return&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="320" y="310" width="180" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- UI: Filtering -->
+        <mxCell id="ui_filter" value="Filtering:&lt;br&gt;predicted_return &gt; 0" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="330" y="440" width="160" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Process: Portfolio Weighting -->
+        <mxCell id="proc_weight" value="Conviction Weighting&lt;br&gt;w_i = pred_i / sum(pred)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="320" y="560" width="180" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Object: Virtual Portfolio -->
+        <mxCell id="obj_portfolio" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;Virtual Portfolio&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ Cash: 0&lt;br/&gt;+ Holdings: {Ticker: Allocation}&lt;br/&gt;+ Total Value: Rebalanced&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="320" y="670" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Connectors -->
+        <mxCell id="p1" edge="1" parent="1" source="in_features" target="proc_inference" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" edge="1" parent="1" source="logic_inference" target="proc_inference" style="dashed=1;endArrow=none;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" edge="1" parent="1" source="proc_inference" target="out_preds" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4" edge="1" parent="1" source="out_preds" target="ui_filter" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5" edge="1" parent="1" source="ui_filter" target="proc_weight" value="Positive" style="endArrow=classic;html=1;fontColor=#000000;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p6" edge="1" parent="1" source="proc_weight" target="obj_portfolio" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

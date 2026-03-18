@@ -1,0 +1,64 @@
+<mxfile host="65bd71144e">
+    <diagram id="sentiment_processing_pipeline" name="Sentiment Processing Pipeline">
+        <mxGraphModel dx="984" dy="679" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="in_raw" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;raw_filings.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker&lt;br/&gt;+ filing_date&lt;br/&gt;+ mda_text&lt;br/&gt;+ revenue&lt;br/&gt;+ net_income&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="40" width="180" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="proc_main" value="process_filings_for_sentiment()&lt;br&gt;(Orchestrator)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="310" y="190" width="200" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="choice_model" value="NLP Method?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="340" y="290" width="140" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="proc_finbert" value="get_sentiment_finbert()&lt;br&gt;(Local Model)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="160" y="400" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="finbert_steps" value="1. Chunk Text (400 words)&lt;br&gt;2. Inference per Chunk&lt;br&gt;3. Avg Probabilities (Triplets)&lt;br&gt;4. Calc Scalar Score (Pos-Neg)" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;align=left;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="500" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="proc_openai" value="get_sentiment_openai()&lt;br&gt;(API Model)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="400" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_openai" value="OpenAI GPT-4o&lt;br&gt;(Cloud API)" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="590" y="505" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="out_processed" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;processed_filings.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker&lt;br/&gt;+ filing_date&lt;br/&gt;+ sentiment_score&lt;br/&gt;+ sentiment_pos/neg/neu&lt;br/&gt;+ sentiment_justification&lt;br/&gt;+ revenue (cached)&lt;br/&gt;+ net_income (cached)&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="650" width="180" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="c1" style="endArrow=classic;html=1;fontColor=#000000;" parent="1" source="in_raw" target="proc_main" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="c2" style="endArrow=classic;html=1;fontColor=#000000;" parent="1" source="proc_main" target="choice_model" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="c3" value="FinBERT" style="endArrow=classic;html=1;fontColor=#000000;labelBackgroundColor=#ffffff;" parent="1" source="choice_model" target="proc_finbert" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="c4" value="OpenAI" style="endArrow=classic;html=1;fontColor=#000000;labelBackgroundColor=#ffffff;" parent="1" source="choice_model" target="proc_openai" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="c5" style="dashed=1;endArrow=none;html=1;fontColor=#000000;" parent="1" source="proc_finbert" target="finbert_steps" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="c6" style="endArrow=classic;html=1;fontColor=#000000;" parent="1" source="proc_openai" target="ext_openai" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="c7" style="endArrow=classic;html=1;fontColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0;entryDx=0;entryDy=0;" parent="1" source="proc_finbert" target="out_processed" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="240" y="470" as="sourcePoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="c8" style="endArrow=classic;html=1;fontColor=#000000;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0;entryDx=0;entryDy=0;" parent="1" source="proc_openai" target="out_processed" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

@@ -1,0 +1,89 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0" version="29.2.9">
+  <diagram id="backtesting_pipeline" name="Backtesting Pipeline">
+    <mxGraphModel dx="1418" dy="746" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- Table: predictions_finbert.xlsx -->
+        <mxCell id="in_preds" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;predictions_finbert.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ ticker&lt;br/&gt;+ filing_date&lt;br/&gt;+ predicted_return&lt;br/&gt;+ target_return&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="320" y="40" width="180" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Process: simulate_portfolio -->
+        <mxCell id="proc_backtest" value="simulate_portfolio()&lt;br&gt;(Simulation Loop)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="310" y="170" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Decision: Frequency -->
+        <mxCell id="dec_freq" value="Frequency?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="340" y="270" width="140" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Process: Quarterly Path -->
+        <mxCell id="path_q" value="Quarterly ('Q')&lt;br&gt;Rebalance at&lt;br&gt;Quarter Start" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="180" y="380" width="140" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Process: Interval Path -->
+        <mxCell id="path_d" value="Interval ('D')&lt;br&gt;Rebalance every&lt;br&gt;N days" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="500" y="380" width="140" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Process: Active Selection -->
+        <mxCell id="proc_select" value="Find Active Predictions&lt;br&gt;(Latest per ticker in validity window)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="310" y="480" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Process: Selection Logic -->
+        <mxCell id="logic_select" value="1. predicted_return &gt; 0&lt;br&gt;2. Sort Descending&lt;br&gt;3. Take Top N&lt;br&gt;4. Weights = pred / sum(pred)" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;darkOpacity=0.05;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;align=left;" vertex="1" parent="1">
+          <mxGeometry x="580" y="460" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Process: Scaling & Compounding -->
+        <mxCell id="proc_scaling" value="Geometric Scaling &amp; Compounding&lt;br&gt;r_period = (1+r_raw)^(hold/lookahead) - 1&lt;br&gt;V = V * (1 + r_period)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="280" y="600" width="260" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Table: backtest_results.xlsx -->
+        <mxCell id="out_results" value="&lt;p style=&quot;margin:0px;margin-top:4px;text-align:center;color:#000000;&quot;&gt;&lt;b&gt;backtest_results.xlsx&lt;/b&gt;&lt;/p&gt;&lt;hr/&gt;&lt;p style=&quot;margin:0px;margin-left:4px;color:#000000;&quot;&gt;+ date&lt;br/&gt;+ portfolio_value&lt;br/&gt;+ period_return&lt;br/&gt;+ selection (tickers)&lt;/p&gt;" style="verticalAlign=top;align=left;overflow=fill;fontSize=12;fontFamily=Helvetica;html=1;whiteSpace=wrap;fontColor=#000000;fillColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="320" y="720" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Connectors -->
+        <mxCell id="b1" edge="1" parent="1" source="in_preds" target="proc_backtest" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" edge="1" parent="1" source="proc_backtest" target="dec_freq" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" edge="1" parent="1" source="dec_freq" target="path_q" value="Q" style="endArrow=classic;html=1;fontColor=#000000;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b4" edge="1" parent="1" source="dec_freq" target="path_d" value="D" style="endArrow=classic;html=1;fontColor=#000000;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b5" edge="1" parent="1" source="path_q" target="proc_select" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b6" edge="1" parent="1" source="path_d" target="proc_select" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b7" edge="1" parent="1" source="logic_select" target="proc_select" style="dashed=1;endArrow=none;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b8" edge="1" parent="1" source="proc_select" target="proc_scaling" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b9" edge="1" parent="1" source="proc_scaling" target="out_results" style="endArrow=classic;html=1;fontColor=#000000;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
