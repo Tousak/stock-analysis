@@ -6,7 +6,7 @@ import yfinance as yf
 
 from src.config import INITIAL_CAPITAL, DATA_DIR
 
-def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_capital: float = INITIAL_CAPITAL, start_year: int = 2021, frequency: str = 'Q', top_n: int = 50, rebalance_days: int = 1) -> pd.DataFrame:
+def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_capital: float = INITIAL_CAPITAL, start_year: int = 2021, frequency: str = 'Q', top_n: int = 50, rebalance_days: int = 1, market_data: pd.DataFrame = None, ranking_col: str = 'predicted_return', filter_positive: bool = True) -> pd.DataFrame:
     """
     Simulates a portfolio strategy with daily resolution between rebalance points.
     """
@@ -46,15 +46,19 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
     start_market_date = (rebalance_dates[0] - timedelta(days=1)).strftime('%Y-%m-%d')
     end_market_date = (rebalance_dates[-1] + timedelta(days=lookahead + 30)).strftime('%Y-%m-%d')
     
-    print(f"Fetching daily price history for {len(all_tickers)} tickers...")
-    market_prices = yf.download(all_tickers.tolist(), start=start_market_date, end=end_market_date, progress=False)
-    
-    if isinstance(market_prices.columns, pd.MultiIndex):
-        daily_closes = market_prices['Close']
+    if market_data is not None:
+        daily_closes = market_data
     else:
-        daily_closes = pd.DataFrame({all_tickers[0]: market_prices['Close']})
-    
-    daily_closes.index = pd.to_datetime(daily_closes.index).tz_localize(None)
+        print(f"Fetching daily price history for {len(all_tickers)} tickers...")
+        market_prices = yf.download(all_tickers.tolist(), start=start_market_date, end=end_market_date, progress=False, auto_adjust=True)
+        
+        if isinstance(market_prices.columns, pd.MultiIndex):
+            daily_closes = market_prices['Close']
+        else:
+            daily_closes = pd.DataFrame({all_tickers[0]: market_prices['Close']})
+        
+        daily_closes.index = pd.to_datetime(daily_closes.index).tz_localize(None)
+        daily_closes = daily_closes[~daily_closes.index.duplicated(keep='first')]
 
     portfolio_value = initial_capital
     portfolio_history = []
@@ -92,20 +96,31 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
             
             # Find active predictions for this period
             if frequency == 'Q':
-                period_predictions = df[df['rebalance_date'] == r_date_ts]
+                period_predictions = df[df['rebalance_date'] == r_date_ts].sort_values('filing_date').groupby('ticker').tail(1)
             else:
                 active_mask = (df['filing_date'] <= r_date_ts) & (df['filing_date'] > r_date_ts - timedelta(days=lookahead))
                 period_predictions = df[active_mask].sort_values('filing_date').groupby('ticker').tail(1)
 
-            positive_predictions = period_predictions[period_predictions['predicted_return'] > 0.0]
-            if positive_predictions.empty:
+            if filter_positive:
+                candidate_predictions = period_predictions[period_predictions[ranking_col] > 0.0]
+            else:
+                candidate_predictions = period_predictions.dropna(subset=[ranking_col])
+
+            if candidate_predictions.empty:
                 current_selection = []
                 current_weights = pd.Series(dtype='float64')
             else:
-                positive_predictions = positive_predictions.sort_values('predicted_return', ascending=False).head(top_n)
-                total_weight = positive_predictions['predicted_return'].sum()
-                current_weights = positive_predictions.set_index('ticker')['predicted_return'] / total_weight
-                current_selection = positive_predictions['ticker'].tolist()
+                candidate_predictions = candidate_predictions.sort_values(ranking_col, ascending=False).head(top_n)
+                # For weighted allocation, we still need a positive value. 
+                # If using revenue, we'll use equal weights for the benchmark to keep it simple and 'naive'.
+                if ranking_col == 'predicted_return':
+                    total_weight = candidate_predictions[ranking_col].sum()
+                    current_weights = candidate_predictions.set_index('ticker')[ranking_col] / total_weight
+                else:
+                    # Equal weight for naive benchmark
+                    current_weights = pd.Series(1.0 / len(candidate_predictions), index=candidate_predictions['ticker'])
+                
+                current_selection = candidate_predictions['ticker'].tolist()
             
             last_r_date = current_day
             last_processed_period = current_period
@@ -114,24 +129,33 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
         if not current_selection:
             daily_return = 0.0
         else:
-            try:
-                start_prices = daily_closes.loc[last_r_date, current_selection]
-                now_prices = daily_closes.loc[current_day, current_selection]
-                valid_tickers = [t for t in current_selection if pd.notna(start_prices[t]) and pd.notna(now_prices[t]) and start_prices[t] > 0]
-                
-                if not valid_tickers:
-                    daily_return = 0.0
-                else:
-                    sub_weights = current_weights[valid_tickers]
-                    sub_weights = sub_weights / sub_weights.sum()
-                    growth = (now_prices[valid_tickers] / start_prices[valid_tickers])
-                    current_rel_value = (growth * sub_weights).sum()
-                    portfolio_value = last_rebalance_value * current_rel_value
-                    
-                    prev_val = portfolio_history[-1]['portfolio_value'] if portfolio_history else initial_capital
-                    daily_return = (portfolio_value / prev_val) - 1
-            except Exception:
+            start_prices = daily_closes.loc[last_r_date, current_selection]
+            now_prices = daily_closes.loc[current_day, current_selection]
+            
+            # Ensure we are dealing with scalars by using .iloc[0] if it returns a Series per ticker
+            def get_val(series, t):
+                val = series[t]
+                return val.iloc[0] if isinstance(val, pd.Series) else val
+
+            valid_tickers = [t for t in current_selection if pd.notna(get_val(start_prices, t)) and pd.notna(get_val(now_prices, t)) and get_val(start_prices, t) > 0]
+            
+            if not valid_tickers:
                 daily_return = 0.0
+            else:
+                # Use .loc with unique tickers to avoid duplicate column issues
+                unique_valid = list(dict.fromkeys(valid_tickers))
+                sub_weights = current_weights[unique_valid]
+                sub_weights = sub_weights / sub_weights.sum()
+                
+                s_p = start_prices[unique_valid]
+                n_p = now_prices[unique_valid]
+                
+                growth = (n_p / s_p)
+                current_rel_value = (growth * sub_weights).sum()
+                portfolio_value = last_rebalance_value * current_rel_value
+                
+                prev_val = portfolio_history[-1]['portfolio_value'] if portfolio_history else initial_capital
+                daily_return = (portfolio_value / prev_val) - 1
 
         portfolio_history.append({
             'date': current_day,
@@ -142,7 +166,7 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
 
     # --- Calculate Benchmarks (SPY and Universe Buy & Hold) ---
     print("Calculating benchmarks for comparison...")
-    spy_data = yf.download('^GSPC', start=all_market_days[0], end=all_market_days[-1], progress=False)
+    spy_data = yf.download('^GSPC', start=all_market_days[0], end=all_market_days[-1], progress=False, auto_adjust=True)
     
     # Ensure spy_prices is a flat Series even if yfinance returns multi-index
     if isinstance(spy_data.columns, pd.MultiIndex):
@@ -184,18 +208,15 @@ def simulate_portfolio(predictions_df: pd.DataFrame, output_path: str, initial_c
 
 if __name__ == "__main__":
     print("Running backtester.py example...")
-    try:
-        from src.config import PROCESSED_FILINGS_PATH
-        # We need predictions file, fallback to features if missing but usually predictions exist
-        pred_path = os.path.join(DATA_DIR, "predictions_finbert.xlsx")
-        if not os.path.exists(pred_path):
-            pred_path = os.path.join(DATA_DIR, "features_finbert.xlsx")
-            
-        predictions_data = pd.read_excel(pred_path)
-        # Ensure predicted_return is present (default to sentiment_score if missing for simple test)
-        if 'predicted_return' not in predictions_data.columns:
-             predictions_data['predicted_return'] = predictions_data.get('sentiment_score', 0)
-             
-        simulate_portfolio(predictions_data.copy(), output_path=os.path.join(DATA_DIR, "backtest_results_finbert.xlsx"))
-    except Exception as e:
-        print(f"Error in example: {e}")
+    from src.config import PROCESSED_FILINGS_PATH
+    # We need predictions file, fallback to features if missing but usually predictions exist
+    pred_path = os.path.join(DATA_DIR, "predictions_finbert.xlsx")
+    if not os.path.exists(pred_path):
+        pred_path = os.path.join(DATA_DIR, "features_finbert.xlsx")
+        
+    predictions_data = pd.read_excel(pred_path)
+    # Ensure predicted_return is present (default to sentiment_score if missing for simple test)
+    if 'predicted_return' not in predictions_data.columns:
+         predictions_data['predicted_return'] = predictions_data.get('sentiment_score', 0)
+         
+    simulate_portfolio(predictions_data.copy(), output_path=os.path.join(DATA_DIR, "backtest_results_finbert.xlsx"))

@@ -31,7 +31,7 @@ with col2:
 # --- Actions ---
 st.header("2. Execute Fetching")
 
-if st.button("Fetch News Articles", use_container_width=True):
+if st.button("Fetch News Articles", width='stretch'):
     fetcher = NewsFetcher()
     log_stream = io.StringIO()
     
@@ -46,7 +46,7 @@ if st.button("Fetch News Articles", use_container_width=True):
         
         # Display sample
         st.subheader("Data Preview")
-        st.dataframe(df.head(10), use_container_width=True)
+        st.dataframe(df.head(10), width='stretch')
         
         # Save Option
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

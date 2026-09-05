@@ -73,7 +73,7 @@ PREDICTIONS_PATH = get_alpha_path(paths["PREDICTIONS_PATH"], is_alpha)
 BACKTEST_RESULTS_PATH = get_alpha_path(paths["BACKTEST_RESULTS_PATH"], is_alpha)
 
 # --- Main Page ---
-if st.sidebar.button("Run New Simulation", use_container_width=True):
+if st.sidebar.button("Run New Simulation", width='stretch'):
     # Check if features file exists
     if not os.path.exists(FEATURES_PATH):
         st.error(f"Features file not found at {FEATURES_PATH}. Please run the Data Pipeline first.")
@@ -156,4 +156,4 @@ else:
     st.subheader("Quarterly Decisions (Trade Log)")
     display_df = results_df.copy()
     display_df['quarterly_return'] = display_df['quarterly_return'].map('{:.2%}'.format)
-    st.dataframe(display_df.set_index('date'), use_container_width=True)
+    st.dataframe(display_df.set_index('date'), width='stretch')

@@ -1,156 +1,104 @@
-# Data Lifecycle: From SEC Filing to Price Prediction
+# Data Lifecycle: From SEC Filings to Algorithmic Execution
 
-This document provides a "Data POV" analysis of how raw corporate information is systematically transformed into a predictive signal. It covers the origin, transformation, and rigorous validation steps designed to prevent information leakage.
+This document details the complete end-to-end data lifecycle: from raw multi-source ingestion and transformer NLP to feature synthesis, high-speed Parquet persistence, purged walk-forward model retraining, and live fractional order execution.
 
-## 1. The Origin of the Feature Set
+---
 
-The system relies on two primary data streams:
-
-- **Unstructured Textual Data**: Sourced from **SEC EDGAR**. The "Management's Discussion and Analysis" (MD&A) section of 10-Q forms is extracted using regex patterns. This is the source of "qualitative" features.
-- **Structured Financial & Market Data**:
-  - **Fundamental Metrics**: Revenue and Net Income are extracted directly from XBRL financial statements within the filings.
-  - **Market Pricing**: Historical OHLCV data is fetched via **yfinance** for the target ticker and benchmark indices.
-
-## 2. Feature Calculation & Engineering
-
-Raw data is never fed directly into the model in its original state. Instead, it is transformed into stationary ratios and indicators using the following formulas:
-
-### A. Sentiment Features (Text → Numbers)
-
-The system converts unstructured text into quantitative probabilities using the **FinBERT** transformer model. Because MD&A sections often exceed 20,000 words, the system employs a **Chunk-Averaging** strategy:
-
-1. **KISS Chunking**: The raw text is split into chunks ($c$) of approx. 400 words.
-2. **Aggregation**: Final probabilities for a filing are the arithmetic mean of all chunks:
-   $$
-   P_{\text{label}} = \frac{1}{n} \sum_{i=1}^n P(\text{label} | c_i)
-   $$
-3. **Sentiment Score**: The primary scalar feature is:
-   $$
-   \text{Score} = P_{\text{pos}} - P_{\text{neg}}
-   $$
-4. **Sentiment Dynamics (QoQ Change)**:
-   $$
-   \Delta \text{Score}_t = \text{Score}_t - \text{Score}_{t-1}
-   $$
-
-### B. Financial Features
-
-- **Revenue Growth**: Quarterly standardized growth rate.
-  $$
-  Growth = \frac{\text{Rev}_t - \text{Rev}_{t-1}}{\text{Rev}_{t-1}}
-  $$
-- **Net Margin**: Profitability efficiency.
-  $$
-  Margin = \frac{\text{Net Income}}{\text{Revenue}}
-  $$
-
-### C. Technical Indicators (Derived from OHLC)
-
-**Critical Note on OHLC**: Scale-invariant prices ($P$) are **not** used as predictors. Only derived indicators that are "stationary" (relative measures) are included:
-
-- **Relative Strength Index (RSI)**:
-
-  $$
-  RSI = \frac{\text{AvgGain}_{14}}{\text{AvgLoss}_{14}} \implies RSI = 100 - \left( \frac{100}{1 + RS} \right)
-  $$
-- **MACD (Moving Average Convergence Divergence)**:
-
-  $$
-  MACD = \text{EMA}(P)_{12} - \text{EMA}(P)_{26}
-  $$
-- **Relative Volatility**: A normalized measure of price dispersion on the filing day.
-
-  $$
-  Volatility = \frac{\text{High} - \text{Low}}{\text{Open} + \epsilon}
-  $$
-
-  *(Where $\epsilon$ is a small constant $1e-9$ to prevent division by zero).*
-
-## 3. The Lifecycle: Journey of a Data Point
+## 1. End-to-End Data & Feature Architecture
 
 ```mermaid
 graph TD
-    A[SEC EDGAR / yfinance] -->|Scrape| B(raw_filings.xlsx)
-    B -->|NLP Extraction| C(processed_filings.xlsx)
-    C -->|Calculation & Merging| D(features.xlsx)
-    D -->|Purging & Validation| E{Training Engine}
-    E -->|XGBoost Fit| F[Model Weights]
-    F -->|Inference| G(predictions.xlsx)
-    G -->|Trade Log| H[Portfolio Backtest]
+    subgraph S1["Stage 1: Raw Data Ingestion"]
+        A1["SEC EDGAR 10-Q/10-K<br/>(src/data_loader.py & data_fetch.ipynb)"]
+        A2["SEC Form 4 Insiders<br/>(01_corporate_insider_signals.ipynb)"]
+        A3["STOCK Act Political Trades<br/>(02_political_legislative_intelligence.ipynb)"]
+        A4["Daily Financial News Stream<br/>(verify_news_fetcher.py & news_fetcher2.py)"]
+        A5["Historical Market Bars OHLCV<br/>(yfinance)"]
+    end
+
+    subgraph S2["Stage 2: Feature Engineering & NLP"]
+        B1["ProsusAI FinBERT Sentiment<br/>(src/processor.py & local_finbert/)"]
+        B2["Exponential Decay Engine<br/>(03_nlp_sentiment_decay_dynamics.ipynb)"]
+        B3["Technical Indicators Engine<br/>(RSI-14, MACD, EWMA Volatility)"]
+        B4["Fundamental Margin Drift<br/>(GAAP Revenue Growth & Net Margin)"]
+    end
+
+    subgraph S3["Stage 3: Columnar Binary Store"]
+        C1["data/processed/master_panel_2000_2026.parquet<br/>(829k records / 129 tickers / 0.15s load)"]
+        C2["data/processed/master_panel_1975_2026.parquet<br/>(638k records / 60 tickers / 48.6 yrs)"]
+    end
+
+    subgraph S4["Stage 4: Walk-Forward ML Retraining"]
+        D1["Purged Walk-Forward Retraining<br/>(15_continuous_step_by_step_walkforward_backtest.ipynb)"]
+        D2["Nested Optuna Bayesian Tuning<br/>(16_purged_nested_optuna_walkforward_backtest.ipynb)"]
+        D3["Half-Century Validation<br/>(17_half_century_1978_2026_walkforward_backtest.ipynb)"]
+    end
+
+    subgraph S5["Stage 5: Live Execution & Dashboard"]
+        E1["Production Sizing & Delta Engine<br/>(src/rebalance_engine.py)"]
+        E2["Two-Step Verification & Alpaca Paper Trading<br/>(pages/6_Alpaca.py)"]
+    end
+
+    A1 & A2 & A3 & A4 & A5 --> B1 & B2 & B3 & B4
+    B1 & B2 & B3 & B4 --> C1 & C2
+    C1 & C2 --> D1 & D2 & D3 --> E1 --> E2
 ```
 
-1. **Ingestion**: Raw HTML filings are converted to Markdown and stored with basic financial metadata.
-2. **Transformation**: Sentiment models (local FinBERT or GPT-4o) process the text into scalar probabilities.
-3. **Augmentation**: Historical price data is merged to calculate growth and future return targets.
-4. **Purging**: Historical data points are filtered to ensure no training sample overlaps with a test sample's prediction window.
-5. **Forecasting**: The latest "live" record (with an unknown outcome) is passed through the trained weights to generate a conviction score.
+---
 
-## 4. Addressing Data Leakage (The "Golden Rule")
+## 2. Ingestion & Feature Lifecycle: Step-by-Step
 
-In financial modeling, "leakage" occurs when information from the future is used to train a model about the past. To prevent this, the system implements three critical layers:
+### Step 1: SEC EDGAR Ingestion & MD&A Extraction
+- **Executing Script**: [`src/data_loader.py`](file:///c:/Users/honza/Desktop/projects/stock-analysis/src/data_loader.py) & [`research/notebooks/data_fetch.ipynb`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/notebooks/data_fetch.ipynb)
+- **Mechanism**: The `edgar` library queries the SEC EDGAR system for 10-Q (quarterly) and 10-K (annual) filings. Regex parsers locate and isolate "Item 2: Management's Discussion and Analysis of Financial Condition and Results of Operations" (MD&A).
+- **Extracted Structured Fields**: GAAP Revenue, Net Income, Operating Margin, Filing Date, and CIK.
 
-### Layer 1: Static NLP Models
+### Step 2: High-Frequency News & FinBERT NLP Processing
+- **Executing Script**: [`research/verify_news_fetcher.py`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/verify_news_fetcher.py), [`src/processor.py`](file:///c:/Users/honza/Desktop/projects/stock-analysis/src/processor.py), & [`research/notebooks/algo-alpha-execution/10_deep_historical_daily_news_finbert_sentiment.ipynb`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/notebooks/algo-alpha-execution/10_deep_historical_daily_news_finbert_sentiment.ipynb)
+- **Mechanism**: GDELT global news streams and financial news feeds are tokenized and scored using a local **ProsusAI/FinBERT** transformer model.
+- **Chunk-Averaging**: Filings and news bundles exceeding 512 tokens are split into 400-word chunks ($c_i$):
+  $$P_{\text{label}} = \frac{1}{n} \sum_{i=1}^n P(\text{label} | c_i), \quad \text{Score} = P_{\text{pos}} - P_{\text{neg}}$$
+- **News Volume Surge Intensity**:
+  $$\text{Intensity}_t = \text{Score}_t \times \ln(1 + N_t)$$
 
-We use **ProsusAI/finbert**, which was trained on pre-2020 data. This ensures the model's understanding of "good/bad" news isn't influenced by post-pandemic market regimes or specific recent events that haven't happened yet in the backtest timeline.
+### Step 3: Continuous Exponential Sentiment Memory Decays ($\tau$)
+- **Executing Script**: [`research/notebooks/algo-alpha-execution/03_nlp_sentiment_decay_dynamics.ipynb`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/notebooks/algo-alpha-execution/03_nlp_sentiment_decay_dynamics.ipynb)
+- **Mechanism**: Market sentiment decays continuously over time. The engine models memory decay via differential EMA equations:
+  $$S_t = \alpha S_t^{\text{new}} + (1-\alpha) S_{t-1}, \quad \alpha = 1 - e^{-1/\tau}$$
+  - **Fast Reaction**: $\tau = 1\text{d}$ ($\alpha = 0.632$) for breaking news sentiment.
+  - **Medium Memory**: $\tau = 3\text{d}$ ($\alpha = 0.283$) for multi-day post-earnings news persistence.
+  - **Sentiment Velocity**: $\text{Velocity}_t = \text{Fast EMA}_t - \text{SMA}_5(\text{Score})$.
 
-### Layer 2: Data Purging
+### Step 4: Alternative Alpha Confluence (Insiders & Politics)
+- **Executing Scripts**: 
+  - [`research/notebooks/algo-alpha-execution/01_corporate_insider_signals.ipynb`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/notebooks/algo-alpha-execution/01_corporate_insider_signals.ipynb) (SEC Form 4 Open-Market Code P purchases by CEO/CFO).
+  - [`research/notebooks/algo-alpha-execution/02_political_legislative_intelligence.ipynb`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/notebooks/algo-alpha-execution/02_political_legislative_intelligence.ipynb) (STOCK Act Congressional committee jurisdiction buys).
+- **Confluence Index**: Sums active insider purchases (`is_opp_buy`), political trades (`is_pol_buy`), positive FinBERT polarity, and volume velocity into a discrete score $C_t \in [0, 7]$.
 
-When calculating a 90-day return, the outcome of a filing in **March **isn't known until **June**.
+### Step 5: Technical Indicator Stationarity Transformation
+- **Indicators Engineered**:
+  - **RSI-14**: 14-day Wilder Relative Strength Index.
+  - **Normalized MACD**: $\frac{\text{EMA}_{12}(P) - \text{EMA}_{26}(P)}{P}$.
+  - **EWMA Volatility**: 20-day annualized return volatility ($\lambda = 0.905$).
+  - **ATR-14**: 14-day Average True Range for volatility-adjusted trailing stop buffers.
 
-- If we train a model in **April**, we MUST NOT use the March sample, because its 90-day outcome is still "in the future" relative to April.
-- The system checks: `(filing_date + lookahead) < current_decision_date`. Only "closed" trades are allowed in the training set.
+### Step 6: Columnar Binary Parquet Storage
+- **Executing Script**: Parquet converter (`master_panel_2000_2026.parquet` and `master_panel_1975_2026.parquet`).
+- **Performance Impact**: Compresses 220MB Excel sheets into fast binary Parquet, reducing page-load and backtest ingestion latency from **150 seconds to 0.15 seconds (750x speedup)**.
 
-### Layer 3: Purged Walk-Forward Cross-Validation
+### Step 7: Continuous Walk-Forward Machine Learning Retraining
+- **Executing Scripts**:
+  - [`research/notebooks/algo-alpha-execution/15_continuous_step_by_step_walkforward_backtest.ipynb`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/notebooks/algo-alpha-execution/15_continuous_step_by_step_walkforward_backtest.ipynb) (192-cycle continuous retrain: `+32,134%` total return / `27.71%` CAGR).
+  - [`research/notebooks/algo-alpha-execution/16_purged_nested_optuna_walkforward_backtest.ipynb`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/notebooks/algo-alpha-execution/16_purged_nested_optuna_walkforward_backtest.ipynb) (8-strategy purged nested Optuna cross-validation).
+  - [`research/notebooks/algo-alpha-execution/17_half_century_1978_2026_walkforward_backtest.ipynb`](file:///c:/Users/honza/Desktop/projects/stock-analysis/research/notebooks/algo-alpha-execution/17_half_century_1978_2026_walkforward_backtest.ipynb) (45.6-year half-century walk-forward: `+1,600,017%` total return / `23.62%` CAGR).
+- **Strict Anti-Leakage Rules**:
+  - The model fits strictly on historical data $t < t_k$.
+  - Target variables ($y = \text{target\_fwd\_30d}$ or $15\text{d}$) are strictly excluded from the feature matrix $X$.
 
-Instead of random splitting, we use a chronological split. The model is trained on everything up to Year $N$ and tested on Year $N+1$. This preserves the time-series nature of the market and prevents the model from seeing future price movements.
-
-## 5. What exactly is Predicted?
-
-The model is a **Regression Engine** designed to forecast the magnitude and direction of the stock's future price movement. It does not output a simple "Buy/Sell" classification; instead, it predicts a continuous float value representing the expected return.
-
-### A. The Target Variable Formulation ($y$)
-
-The dependent variable used for training and inference is the **arithmetic raw return** of the stock over a specific forward-looking horizon ($H$):
-
-$$
-y = \frac{P_{t+H} - P_t}{P_t}
-$$
-
-- **$P_t$ (Entry Price)**: The daily close price on the filing date. If the filing occurs on a weekend or after market hours, the system uses the first available price on or after that date.
-- **$P_{t+H}$ (Exit Price)**: The daily close price exactly $H$ days after $P_t$.
-- **$H$ (Horizon)**:
-  - **Fundamental (90 Days)**: Aligned with the typical fiscal quarter cycle. This targets "Post-Earnings Announcement Drift" (PEAD) and long-term fundamental sentiment.
-  - **Alpha/Momentum (5 Days)**: Targets the immediate short-term market reaction to the sentiment extracted from the filing.
-
-### B. Predicted Return vs. Residual Alpha
-
-While the model is trained on **raw returns**, its utility in a portfolio context effectively targets **Residual Alpha**. Because the feature set includes broad financial growth and specific corporate sentiment, the model attempts to capture the portion of the return that is idiosyncratic to the company (the "Alpha"), rather than just following general market beta.
-
-### C. Conversion to Conviction Score
-
-The raw output of the XGBoost regressor is treated as a **Conviction Score** ($\hat{y}$):
-
-1. **Inference**: The model inputs the latest filing features and outputs a predicted return (e.g., `+0.045`).
-2. **Filtering**: Any ticker with a prediction $\le 0$ is discarded.
-3. **Portfolio Weighting**: For all tickers in the "Buy List" ($N$), the specific allocation weight ($w_i$) is calculated using identifying conviction:
-   $$
-   w_i = \frac{\hat{y}_i}{\sum_{j=1}^N \hat{y}_j}
-   $$
-
-   This ensures that 100% of the allocated capital is distributed among positive opportunities, skewed towards the highest expected returns.
-
-### D. Performance Evaluation (Backtest Metrics)
-
-To verify the validity of these predictions, the system calculates the **Sharpe Ratio** ($S$) of the portfolio returns ($R_p$):
-
-$$
-S = \frac{\text{Mean}(R_p) - R_f}{\text{StdDev}(R_p)}
-$$
-
-- $R_p$: The quarterly periodic returns generated by the weighting logic above.
-- $R_f$: Risk-free rate (assumed 0.0 for conservative baseline).
-- The ratio is annualized by multiplying by $\sqrt{4}$ (for quarterly) or $\sqrt{252}$ (for daily).
-
-### E. Why Regression instead of Classification?
-
-By predicting the **percentage return** rather than just a "Up/Down" label, the system can distinguish between a "Strong Buy" (high expected gain) and a "Weak Buy" (low expected gain). this allows for much more sophisticated portfolio optimization where the highest conviction ideas are given the most capital.
+### Step 8: Forecast-Proportional Position Sizing & Alpaca Execution
+- **Executing Script**: [`src/rebalance_engine.py`](file:///c:/Users/honza/Desktop/projects/stock-analysis/src/rebalance_engine.py) & [`pages/6_Alpaca.py`](file:///c:/Users/honza/Desktop/projects/stock-analysis/pages/6_Alpaca.py).
+- **Conviction Allocation**:
+  $$w_i = \frac{\hat{y}_i}{\sum_{j=1}^{100} \hat{y}_j}$$
+- **Two-Step Verification Protocol**:
+  1. **Step 1 Button**: Loads Parquet in 0.15s, fits XGBoost model in ~1.7s, forecasts 30-day returns, computes target dollar allocations, and renders the Sector Treemap and Delta Table.
+  2. **Step 2 Button**: Submits fractional market orders to Alpaca Sandbox API after visual human verification.

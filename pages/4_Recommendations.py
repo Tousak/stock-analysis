@@ -18,11 +18,8 @@ def load_predictions(path, mtime):
 
 @st.cache_data(ttl=3600)
 def get_ticker_chart_data(ticker):
-    try:
-        data = yf.download(ticker, period="6mo", progress=False)
-        return data['Close'] if not data.empty else None
-    except:
-        return None
+    data = yf.download(ticker, period="6mo", progress=False)
+    return data['Close'] if not data.empty else None
 
 st.set_page_config(
     page_title="Strategic Recommendations",
@@ -97,19 +94,16 @@ def run_prediction_engine():
         return
     
     with st.spinner(f"AI Engine crunching numbers using {nlp_source}..."):
-        try:
-            features_df = pd.read_excel(FEATURES_PATH)
-            generate_next_quarter_prediction(
-                features_df, 
-                output_path=LATEST_PREDICTIONS_PATH,
-                lookahead_days=(5 if is_alpha else 90),
-                use_optuna=use_optuna_input,
-                use_triplet=use_triplet_input
-            )
-            st.success("New recommendations generated!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Prediction engine failed: {e}")
+        features_df = pd.read_excel(FEATURES_PATH)
+        generate_next_quarter_prediction(
+            features_df, 
+            output_path=LATEST_PREDICTIONS_PATH,
+            lookahead_days=(5 if is_alpha else 90),
+            use_optuna=use_optuna_input,
+            use_triplet=use_triplet_input
+        )
+        st.success("New recommendations generated!")
+        st.rerun()
 
 if st.sidebar.button("Generate Fresh Forecasts", width="stretch"):
     run_prediction_engine()
@@ -155,7 +149,7 @@ else:
             target_label = "Predicted 5-Day Return" if is_alpha else "Predicted Qt Forecast"
             st.dataframe(
                 buys_df[['ticker', 'predicted_return']].rename(columns={'predicted_return': target_label}).style.format({target_label: '{:.2%}'}),
-                use_container_width=True
+                width='stretch'
             )
             
             st.markdown("### 🔍 Deep Dive Analysis")
@@ -185,7 +179,7 @@ else:
         else:
             st.dataframe(
                 holds_df[['ticker', 'predicted_return']].style.format({'predicted_return': '{:.2%}'}),
-                use_container_width=True
+                width='stretch'
             )
 
 # --- Virtual Portfolio Section ---
@@ -239,7 +233,7 @@ if st.session_state.portfolio['holdings']:
             color=alt.Color(field="Ticker", type="nominal", scale=alt.Scale(scheme='category20')),
             tooltip=['Ticker', 'Allocation ($)', 'Weight (%)']
         ).properties(width='container', height=300)
-        st.altair_chart(pie_chart, use_container_width=True)
+        st.altair_chart(pie_chart, width='stretch')
         
     with v_col2:
         st.dataframe(

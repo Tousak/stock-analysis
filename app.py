@@ -17,13 +17,9 @@ st.write("A high-level executive summary of the latest backtest run.")
 
 # --- 1. Load Data ---
 # We load the final results of the backtest and the predictions that drove it.
-try:
-    results_df = pd.read_excel(BACKTEST_RESULTS_PATH)
-    predictions_df = pd.read_excel(PREDICTIONS_PATH)
-    results_exist = True
-except FileNotFoundError:
-    st.error("Backtest results not found. Please run the 'Strategy Lab' page to generate results.")
-    results_exist = False
+results_df = pd.read_excel(BACKTEST_RESULTS_PATH)
+predictions_df = pd.read_excel(PREDICTIONS_PATH)
+results_exist = True
 
 if results_exist:
     # --- 2. Display KPIs ---
@@ -72,6 +68,6 @@ for path, name in [
     else:
         status_data.append({"File": name, "Last Updated": "Not found"})
 
-st.dataframe(pd.DataFrame(status_data), use_container_width=True)
+st.dataframe(pd.DataFrame(status_data), width='stretch')
 
 st.info("To re-run the pipeline or backtest with new parameters, navigate to the other pages using the sidebar.")

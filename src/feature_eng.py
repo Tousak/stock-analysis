@@ -7,29 +7,40 @@ from tqdm.auto import tqdm
 from src.config import DATA_DIR
 from src.data_loader import fetch_stock_prices
 
+def _consecutive_quarters_mask(df: pd.DataFrame) -> pd.Series:
+    """True where a ticker's previous row is exactly one quarter earlier."""
+    quarters = pd.to_datetime(df['filing_date']).dt.to_period('Q')
+    prev_quarter = quarters.groupby(df['ticker']).shift(1)
+    return prev_quarter.eq(quarters - 1)
+
 def calculate_financial_growth(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates revenue growth and net margin for each ticker with minor filling."""
-    # Forward fill financials within ticker group to handle rare missing points
+    """Calculates revenue growth and net margin for each ticker with minor filling.
+    Growth is only valid between consecutive quarterly filings."""
+    df = df.sort_values(['ticker', 'filing_date'])
     df['revenue'] = df.groupby('ticker')['revenue'].ffill(limit=1)
     df['net_income'] = df.groupby('ticker')['net_income'].ffill(limit=1)
-    
-    df['revenue_growth'] = df.groupby('ticker')['revenue'].pct_change(fill_method=None)
+
+    consecutive = _consecutive_quarters_mask(df)
+    df['revenue_growth'] = df.groupby('ticker')['revenue'].pct_change(fill_method=None).where(consecutive)
     df['net_margin'] = df['net_income'] / df['revenue']
     return df
 
 def calculate_sentiment_change(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates sentiment change (QoQ difference) for each ticker."""
-    df['sentiment_change'] = df.groupby('ticker')['sentiment_score'].diff()
-    
+    """Calculates sentiment change (QoQ difference) for each ticker.
+    Deltas are only valid between consecutive quarterly filings."""
+    consecutive = _consecutive_quarters_mask(df)
+    df['sentiment_change'] = df.groupby('ticker')['sentiment_score'].diff().where(consecutive)
+
     # Also calculate changes for the triplet features if they exist
     for col in ['sentiment_pos', 'sentiment_neg', 'sentiment_neu']:
         if col in df.columns:
-            df[f'{col}_change'] = df.groupby('ticker')[col].diff()
-            
+            df[f'{col}_change'] = df.groupby('ticker')[col].diff().where(consecutive)
+
     return df
 
 def calculate_technical_indicators(df: pd.DataFrame, market_df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates RSI, MACD, and Volatility (KISS implementation)."""
+    """Calculates RSI (Wilder), MACD, and Volatility (KISS implementation).
+    Each filing is matched with the last trading day on or before its filing date."""
     # Group by ticker to iterate through market data
     market_grouped = market_df.groupby('ticker')
     all_ta_features = []
@@ -37,25 +48,27 @@ def calculate_technical_indicators(df: pd.DataFrame, market_df: pd.DataFrame) ->
     for ticker, ticker_data in tqdm(market_grouped, desc="Engineering TA Features"):
         td = ticker_data.sort_values('date').copy()
         delta = td['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False).mean()
+        loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False).mean()
         rs = gain / (loss + 1e-9)
         td['rsi'] = 100 - (100 / (1 + rs))
-        
+
         ema12 = td['Close'].ewm(span=12, adjust=False).mean()
         ema26 = td['Close'].ewm(span=26, adjust=False).mean()
         td['macd'] = ema12 - ema26
-        
+
         td['volatility'] = (td['High'] - td['Low']) / (td['Open'] + 1e-9)
         all_ta_features.append(td[['ticker', 'date', 'rsi', 'macd', 'volatility']])
 
     ta_df = pd.concat(all_ta_features)
-    ta_df['date'] = pd.to_datetime(ta_df['date']).dt.date
-    
-    # Merge with filings
-    df['date_match'] = pd.to_datetime(df['filing_date']).dt.date
-    df = pd.merge(df, ta_df, left_on=['ticker', 'date_match'], right_on=['ticker', 'date'], how='left')
-    return df.drop(columns=['date_match', 'date'])
+    ta_df['date'] = pd.to_datetime(ta_df['date'])
+
+    # Backward as-of join: no more NaNs for filings dated on market holidays
+    df = pd.merge_asof(
+        df.sort_values('filing_date'), ta_df.sort_values('date'),
+        left_on='filing_date', right_on='date', by='ticker', direction='backward'
+    )
+    return df.drop(columns=['date'])
 
 def calculate_future_return(filings_df: pd.DataFrame, market_data_df: pd.DataFrame, horizon_days: int = 90) -> pd.DataFrame:
     """Calculates stock return over a given horizon (default 90 days)."""
@@ -75,12 +88,12 @@ def calculate_future_return(filings_df: pd.DataFrame, market_data_df: pd.DataFra
     for _, row in tqdm(filings_df.iterrows(), total=filings_df.shape[0], desc=f"Calculating {horizon_days}-Day Returns"):
         ticker = row['ticker']
         filing_date = row['filing_date']
-        
-        try:
-            current_ticker_market_data = market_data_grouped.get_group(ticker)
-        except KeyError:
+
+        if ticker not in market_data_grouped.groups:
             returns.append(np.nan)
             continue
+
+        current_ticker_market_data = market_data_grouped.get_group(ticker)
 
         price_on_filing_date = get_price_on_or_after_date(current_ticker_market_data, filing_date)
         future_date = filing_date + timedelta(days=horizon_days)
@@ -105,7 +118,7 @@ def engineer_features(processed_filings_df: pd.DataFrame, output_path: str, hori
     df = processed_filings_df.copy()
     
     if 'mda_text' in df.columns:
-        df['mda_text'].replace('', np.nan, inplace=True)
+        df['mda_text'] = df['mda_text'].replace('', np.nan)
     df.sort_values(by=['ticker', 'filing_date'], inplace=True)
 
     # --- Initial Feature Calculation (before splitting for cleaning) ---

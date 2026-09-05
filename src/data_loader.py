@@ -106,8 +106,8 @@ def get_current_stock_prices(tickers: list) -> pd.Series:
     return latest_close_prices
 
 def fetch_stock_prices(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """Fetches historical daily stock data for a given ticker."""
-    data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+    """Fetches historical daily stock data for a given ticker (split/dividend adjusted)."""
+    data = yf.download(ticker, start=start_date, end=end_date, progress=False, auto_adjust=True)
     if data.empty:
         print(f"Warning: No yfinance data for {ticker} from {start_date} to {end_date}")
         return pd.DataFrame()
